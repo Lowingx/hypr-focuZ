@@ -1,0 +1,172 @@
+#include "globals.hpp"
+#include "DepthFocus.hpp"
+
+#include <hyprland/src/Compositor.hpp>
+#include <hyprland/src/desktop/DesktopTypes.hpp>
+#include <hyprland/src/desktop/view/Window.hpp>
+#include <hyprland/src/desktop/state/WindowState.hpp>
+#include <hyprland/src/desktop/state/FocusState.hpp>
+#include <hyprland/src/render/Renderer.hpp>
+#include <hyprland/src/event/EventBus.hpp>
+#include <hyprland/src/SharedDefs.hpp>
+
+#include <stdexcept>
+
+// Singleton manager
+UP<CDepthFocusManager> g_pDepthFocusManager;
+
+// Event listeners (must be stored to keep them alive)
+// Each .listen() call returns a SP<CSignalListener> — we just need to keep them alive
+static SP<CSignalListener> g_focusListener;
+static SP<CSignalListener> g_openListener;
+static SP<CSignalListener> g_closeListener;
+static SP<CSignalListener> g_destroyListener;
+static SP<CSignalListener> g_renderListener;
+
+// ---------------------------------------------------------
+// Required plugin API exports
+// ---------------------------------------------------------
+
+APICALL EXPORT std::string PLUGIN_API_VERSION() {
+    return HYPRLAND_API_VERSION;
+}
+
+APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
+    PHANDLE = handle;
+
+    // --- Version check ---
+    const std::string hash    = __hyprland_api_get_hash();
+    const std::string version = HyprlandAPI::getHyprlandVersion(handle).hash;
+
+    if (hash != version) {
+        HyprlandAPI::addNotification(PHANDLE,
+            "[focusZ] Version mismatch — plugin compiled for a different Hyprland build. Unloading.",
+            CHyprColor{1.0, 0.2, 0.2, 1.0}, 15000);
+        throw std::runtime_error("focusZ: version mismatch");
+    }
+
+    // --- Register config values using makeConfigValue ---
+    using namespace Config::Values;
+
+    g_bEnabled       = makeConfigValue<CBoolValue>("plugin:focusZ:enabled",
+                          "Enable or disable the Z-axis depth focus effect", true, {});
+    g_iMaxLayers     = makeConfigValue<CIntValue>("plugin:focusZ:max_layers",
+                          "Maximum number of visible depth layers (1-5)", 3,
+                          Config::Values::SIntValueOptions{.min = 1, .max = 5});
+    g_fLayer1Scale   = makeConfigValue<CFloatValue>("plugin:focusZ:layer_1_scale",
+                          "Scale factor for background layer 1 (0.5–1.0)", 0.85f,
+                          Config::Values::SFloatValueOptions{.min = 0.5f, .max = 1.0f});
+    g_fLayer2Scale   = makeConfigValue<CFloatValue>("plugin:focusZ:layer_2_scale",
+                          "Scale factor for background layer 2 (0.3–1.0)", 0.70f,
+                          Config::Values::SFloatValueOptions{.min = 0.3f, .max = 1.0f});
+    g_fLayer1Opacity = makeConfigValue<CFloatValue>("plugin:focusZ:layer_1_opacity",
+                          "Opacity for background layer 1 (0.1–1.0)", 0.7f,
+                          Config::Values::SFloatValueOptions{.min = 0.1f, .max = 1.0f});
+    g_fLayer2Opacity = makeConfigValue<CFloatValue>("plugin:focusZ:layer_2_opacity",
+                          "Opacity for background layer 2 (0.1–1.0)", 0.4f,
+                          Config::Values::SFloatValueOptions{.min = 0.1f, .max = 1.0f});
+    g_bLayer1Blur    = makeConfigValue<CBoolValue>("plugin:focusZ:layer_1_blur",
+                          "Enable blur on background layer 1", true, {});
+    g_bLayer2Blur    = makeConfigValue<CBoolValue>("plugin:focusZ:layer_2_blur",
+                          "Enable blur on background layer 2", true, {});
+    g_fAnimationSpeed = makeConfigValue<CFloatValue>("plugin:focusZ:animation_speed",
+                          "Animation speed for depth transitions (1.0–20.0)", 8.0f,
+                          Config::Values::SFloatValueOptions{.min = 1.0f, .max = 20.0f});
+    g_bCenterScale   = makeConfigValue<CBoolValue>("plugin:focusZ:center_scale",
+                          "Scale windows toward the center of the monitor", true, {});
+
+    // Register all config values with Hyprland
+    bool ok = true;
+    ok &= HyprlandAPI::addConfigValueV2(PHANDLE, g_bEnabled);
+    ok &= HyprlandAPI::addConfigValueV2(PHANDLE, g_iMaxLayers);
+    ok &= HyprlandAPI::addConfigValueV2(PHANDLE, g_fLayer1Scale);
+    ok &= HyprlandAPI::addConfigValueV2(PHANDLE, g_fLayer2Scale);
+    ok &= HyprlandAPI::addConfigValueV2(PHANDLE, g_fLayer1Opacity);
+    ok &= HyprlandAPI::addConfigValueV2(PHANDLE, g_fLayer2Opacity);
+    ok &= HyprlandAPI::addConfigValueV2(PHANDLE, g_bLayer1Blur);
+    ok &= HyprlandAPI::addConfigValueV2(PHANDLE, g_bLayer2Blur);
+    ok &= HyprlandAPI::addConfigValueV2(PHANDLE, g_fAnimationSpeed);
+    ok &= HyprlandAPI::addConfigValueV2(PHANDLE, g_bCenterScale);
+
+    if (!ok) {
+        HyprlandAPI::addNotification(PHANDLE,
+            "[focusZ] Failed to register some config values.",
+            CHyprColor{1.0, 0.5, 0.2, 1.0}, 8000);
+    }
+
+    // --- Create the depth focus manager ---
+    g_pDepthFocusManager = Hyprutils::Memory::makeUnique<CDepthFocusManager>();
+
+    // --- Register EventBus listeners ---
+
+    // Focus change
+    g_focusListener = Event::bus()->m_events.window.active.listen(
+        [](PHLWINDOW w, Desktop::eFocusReason reason) {
+            if (g_pDepthFocusManager)
+                g_pDepthFocusManager->onFocusChange(w, reason);
+        });
+
+    // Window open
+    g_openListener = Event::bus()->m_events.window.open.listen(
+        [](PHLWINDOW w) {
+            if (g_pDepthFocusManager)
+                g_pDepthFocusManager->onWindowOpen(w);
+        });
+
+    // Window close
+    g_closeListener = Event::bus()->m_events.window.close.listen(
+        [](PHLWINDOW w) {
+            if (g_pDepthFocusManager)
+                g_pDepthFocusManager->onWindowClose(w);
+        });
+
+    // Window destroy
+    g_destroyListener = Event::bus()->m_events.window.destroy.listen(
+        [](PHLWINDOWREF w) {
+            auto pw = w.lock();
+            if (g_pDepthFocusManager && valid(pw))
+                g_pDepthFocusManager->onWindowClose(pw);
+        });
+
+    // Render stage hook
+    g_renderListener = Event::bus()->m_events.render.stage.listen(
+        [](eRenderStage stage) {
+            if (g_pDepthFocusManager)
+                g_pDepthFocusManager->onRenderStage(stage);
+        });
+
+    // --- Register dispatcher for keybind cycling ---
+    HyprlandAPI::addDispatcherV2(PHANDLE, "focusZ:cycle",
+        [](std::string) -> SDispatchResult {
+            if (!g_pDepthFocusManager)
+                return {.passEvent = false, .success = false, .error = "focusZ not initialized"};
+
+            // Delegate to Hyprland's built-in window cycling
+            HyprlandAPI::invokeHyprctlCommand("dispatch", "cyclenext");
+            return {.passEvent = false, .success = true, .error = ""};
+        });
+
+    // --- Notification ---
+    HyprlandAPI::addNotification(PHANDLE,
+        "[focusZ] Plugin loaded — Z-Axis Depth Focus Layout active.",
+        CHyprColor{0.2, 0.8, 0.4, 1.0}, 4000);
+
+    return {"focusZ",
+            "Z-Axis Depth Focus Layout — 3D stacking visual effect based on focus depth",
+            "focusZ",
+            "1.0.0"};
+}
+
+APICALL EXPORT void PLUGIN_EXIT() {
+    g_focusListener.reset();
+    g_openListener.reset();
+    g_closeListener.reset();
+    g_destroyListener.reset();
+    g_renderListener.reset();
+
+    g_pDepthFocusManager.reset();
+
+    HyprlandAPI::addNotification(PHANDLE,
+        "[focusZ] Plugin unloaded.",
+        CHyprColor{0.5, 0.5, 0.5, 1.0}, 3000);
+}
