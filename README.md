@@ -1,24 +1,43 @@
 # focusZ — Z-Axis Depth Focus Layout for Hyprland
 
-A Hyprland plugin that creates a **3D-like stacking layout** based on Z-axis depth.
-The focused window stays in the foreground at full scale, while background windows
-recede visually with reduced scale, opacity, and dynamic shadows.
+A Hyprland plugin that gives windows real **Z-axis depth**: the focused window sits
+on top at full size, and background windows are **stacked behind it as overlapping
+cards** that recede with reduced scale, opacity, and a depth-varying shadow.
 
 ## Effect
 
-| Layer | Position | Scale | Opacity | Blur | Shadow |
-|-------|----------|-------|---------|------|--------|
-| 0 (focused) | Foreground | 1.00 | 1.0 | No | Max |
-| -1 | Background | 0.85 | 0.7 | Global* | Medium |
-| -2 | Background | 0.70 | 0.4 | Global* | Min |
+When `stacking` is enabled the stack becomes a pile of floating cards on the
+monitor's active workspace. The focused card is resized to 70% of the workarea
+(minus a small margin) and centered; every deeper card is **smaller** — the box
+is scaled by the layer's scale factor, so the scale is real geometry, not just a
+render transform — and is **parked in one of the focused card's four corners**,
+pushed diagonally outward toward the screen's extremities (20–40 px, hashed from
+the window's address so positions never jitter when you alt-tab). One back card
+per corner, so every card is clearly visible behind the front one, and the pile
+reads as receding scale, translucency, and blur.
 
-\* Blur is applied by Hyprland's global `blur:size` setting. The plugin API has no
-per-window blur-radius control (only an on/off `noblur` window rule), so the
-`layer_1_blur` / `layer_2_blur` toggles are reserved but not yet wired to
-anything. Background windows blur exactly as much as your global `blur:size`.
+| Layer | Scale | Opacity | Shadow |
+|-------|-------|---------|--------|
+| 0 (focused) | 1.00 | 1.0 | — (native) |
+| 1 (behind)  | 0.62 | 0.5 | Medium |
+| 2 (behind)  | 0.42 | 0.2 | Min |
+| 3+          | extrapolated (−0.13/layer) | extrapolated (−0.18/layer) | Min |
 
-Switching focus triggers a smooth interpolation animation that swaps the positions
-in the Z-matrix.
+Blur is **free**: with global `decoration:blur:enabled` on (default), the
+translucent background cards blur whatever is behind them — wallpaper, layers,
+and each other. The plugin API has no per-window blur radius (only an on/off
+`noblur` window rule), so the `layer_1_blur` / `layer_2_blur` toggles are reserved
+but inert. The Ryoku module (`~/.config/hypr/modules/focusz.lua`) sets a strong,
+clean global blur (size 30, passes 8, noise 0.0) so the backdrop reads as deep
+and sharp rather than grainy; the focused window is opaque and stays crisp.
+
+While the deck is live the **wallpaper is pulled back** into the scene: its layer
+surface's fade alpha is dimmed to 0.65 so it recedes along the Z axis behind the
+cards (geometry is untouched — the compositor owns layer arrangement). When the
+stack is cleared or stacking is disabled the wallpaper is restored to full alpha.
+
+Switching focus (`focusZ:cycle` or clicking a card) promotes the window to Layer 0,
+re-stacks the pile, and the cards animate to their new positions.
 
 ## Requirements
 
@@ -63,16 +82,20 @@ plugin {
         # Master toggle
         enabled = true
 
-        # How many windows participate in the depth stack (1-5)
-        max_layers = 3
+        # Stack windows as overlapping floating cards (true), or keep tiling
+        # and apply only scale/opacity/shadow (false)
+        stacking = true
+
+        # How many windows participate in the depth stack (1-16)
+        max_layers = 8
 
         # Scale factors per background layer
-        layer_1_scale = 0.85      # 0.5 - 1.0
-        layer_2_scale = 0.70      # 0.3 - 1.0
+        layer_1_scale = 0.62      # 0.4 - 1.0
+        layer_2_scale = 0.42      # 0.3 - 1.0
 
         # Opacity per background layer
-        layer_1_opacity = 0.7     # 0.1 - 1.0
-        layer_2_opacity = 0.4     # 0.1 - 1.0
+        layer_1_opacity = 0.5     # 0.1 - 1.0
+        layer_2_opacity = 0.2     # 0.1 - 1.0
 
         # Whether to apply blur to background layers
         # NOTE: reserved — per-window blur radius isn't part of the plugin API;
@@ -81,13 +104,20 @@ plugin {
         layer_2_blur = true
 
         # Animation speed for depth transitions (higher = snappier)
+        # NOTE: reserved — positions animate with Hyprland's native anim system.
         animation_speed = 8.0     # 1.0 - 20.0
 
         # Scale windows toward monitor center (true) or top-left (false)
+        # NOTE: reserved — not currently wired to anything.
         center_scale = true
+
+        # Write a debug log + heartbeat to ~/.local/share/hyprland/focusz-debug.log
+        debug = false
     }
 }
 ```
+
+Config changes need a `hyprctl reload` (or session restart) to take effect.
 
 ### Keybind
 
@@ -99,32 +129,37 @@ bind = ALT, Tab, focusZ:cycle
 
 ## How It Works
 
-The plugin hooks into three core Hyprland systems:
+The plugin hooks into four Hyprland systems:
 
-1. **EventBus listeners** — `window.active`, `window.open`, `window.close`,
-   `window.destroy` events maintain an ordered Z-stack of windows. On focus change,
-   the newly focused window is promoted to Layer 0 and all others demoted. The
-   stack is anchored to the focused window's monitor, so windows on other monitors
-   are never scaled or reordered.
+1. **EventBus listeners** — `window.active`, `window.open`, `window.close` and
+   `window.destroy` events maintain an ordered Z-stack of windows. On focus change
+   the newly focused window is promoted to Layer 0 and the rest demote. The stack
+   is anchored to the focused monitor's **active workspace**, so windows on other
+   monitors or other workspaces are never touched.
 
-2. **Per-window animated transforms** — Background windows get their
-   `WINDOW_ALPHA_ACTIVE` animation variable goal set to the layer's opacity, and
-   their `sizeAnimation`/`positionAnimation` goals updated to produce the scaled,
-   centered effect. Hyprland's native animation system handles the smooth
-   interpolation. The plugin records each window's original unscaled geometry and
-   restores it when the window leaves the stack (evicted past `max_layers`,
-   focused, disabled, or closed), so scaling never compounds.
+2. **Per-window render scale** — Each background window gets a
+   `CScaleTransformer` (a `Render::IWindowTransformer`). Hyprland renders the
+   window into its own framebuffer, `transform()` shrinks it around the window's
+   center, and it is blitted back 1:1 — a fully render-safe, per-window scale that
+   never fights the layout engine. The focused window and restored windows drop the
+   transformer to stay on the cheap direct path.
 
-3. **Render-stage hook** — A `RENDER_PRE_WINDOW` listener injects a
-   `RMOD_TYPE_SCALECENTER` modification into the render data for each background
-   window, applying the per-layer scale factor during the actual draw. Depth
-   lookup here is O(1) (cached per window), and windows whose layer didn't change
-   are not re-damaged.
+3. **Stacking as floating cards** — When `stacking` is on, stack windows are
+   floated (`changeFloatingMode`) and positioned with `setPositionGlobal`, which
+   for a floating window applies the box directly — the tiling algorithm can't
+   re-arrange it back (the geometry oscillation that froze earlier builds). The
+   renderer draws floating windows in window-list order, and focus via `cyclenext`
+   does **not** raise a floating window, so the plugin explicitly raises the stack
+   deepest→focused on every mutation to keep the focused card on top. Only windows
+   the plugin floated are returned to tiling on restore; user-floated windows are
+   left alone. Fullscreen windows are skipped.
 
-4. **Custom shadow decoration** — Background windows receive a
-   `CDepthShadowDecoration` (`IHyprWindowDecoration` subclass) that draws a shadow
-   whose range/offset scales with the window's layer depth. The decoration is
-   removed again when the window returns to Layer 0.
+4. **Depth shadow** — Background windows receive a `CDepthShadowDecoration`
+   (`IHyprWindowDecoration` subclass) whose shadow range/offset varies with the
+   layer. It is removed when the window returns to Layer 0 or leaves the stack.
+
+Depth lookups in the render path are O(1) (cached per window), and windows whose
+depth didn't change are never re-damaged, so the per-frame cost is flat.
 
 ## Architecture
 
@@ -135,10 +170,17 @@ src/main.cpp            Plugin entry: PLUGIN_API_VERSION / PLUGIN_INIT / PLUGIN_
 
 src/DepthFocus.hpp/cpp  CDepthFocusManager — the core depth engine
                     Maintains Z-stack, computes per-layer transforms,
-                    applies animations, render-stage hook
+                    applies scale transformer, floats + positions the stack
+
+src/ScaleTransformer.cpp/hpp
+                    CScaleTransformer — Render::IWindowTransformer
+                    Per-window scale via the official transformed-fb pipeline
 
 src/DepthShadow.hpp/cpp CDepthShadowDecoration — IHyprWindowDecoration subclass
                     Draws depth-aware shadows (range/offset vary by layer)
+
+src/DebugLog.cpp/hpp    Optional debug logger + main-thread heartbeat
+                    ~/.local/share/hyprland/focusz-debug.log
 
 src/globals.hpp         Plugin handle + config value smart pointers
 ```
@@ -149,15 +191,25 @@ src/globals.hpp         Plugin handle + config value smart pointers
 the exact same Hyprland headers as the running binary. Rebuild after any Hyprland
 update: `make clean && make`.
 
-**No visual effect** — Check `hyprctl getoption plugin:focusZ:enabled` and ensure
-your windows aren't floating-only (the plugin works on both tiled and floating
-windows but needs at least 2 windows on a workspace to show depth).
+**A new build doesn't take effect** — The plugin `.so` stays resident in the
+running Hyprland; `hyprctl plugin unload`/`load` can hand back a stale handle.
+Restart the Hyprland session after `make install` to pick up a fresh build.
 
-**Window position looks off after disabling** — Run `hyprctl reload` to let
-Hyprland's layout recalculate window positions.
+**No visual effect** — Check `hyprctl getoption plugin:focusZ:enabled` and
+`hyprctl getoption plugin:focusZ:stacking`, and make sure you have ≥2 windows on
+the workspace. With `debug = true`, `focusz-debug.log` shows the stack rebuilds
+and per-window depth applications.
 
-**Multi-monitor** — The depth stack is anchored to the focused monitor. Windows on
-other monitors are left untouched; the stack re-anchors when focus crosses monitors.
+**Windows went floating** — That's the stacking layout: cards overlap, so the
+stack is floated and repositioned by the plugin. Set `stacking = false` to keep
+tiling (scale/opacity/shadow still apply), or `enabled = false` and `hyprctl
+reload` to return every window to its tiled slot.
 
 **Blur not changing** — Expected. Blur size is global (`blur:size`); the plugin
-cannot scale blur radius per window (see the config note above).
+cannot scale blur radius per window (see the config note above). The cards only
+show blur behind them if `decoration:blur:enabled` is on.
+
+**Multi-monitor** — The depth stack is anchored to the focused monitor's active
+workspace. Windows on other monitors or workspaces are left untouched; the stack
+re-anchors when focus crosses monitors.
+```

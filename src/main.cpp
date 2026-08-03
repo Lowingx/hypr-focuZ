@@ -57,20 +57,22 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
 
     g_bEnabled       = makeConfigValue<CBoolValue>("plugin:focusZ:enabled",
                           "Enable or disable the Z-axis depth focus effect", true, {});
+    g_bStacking      = makeConfigValue<CBoolValue>("plugin:focusZ:stacking",
+                          "Stack windows as overlapping cards (floats them); disable to keep tiling", true, {});
     g_iMaxLayers     = makeConfigValue<CIntValue>("plugin:focusZ:max_layers",
-                          "Maximum number of visible depth layers (1-5)", 3,
-                          Config::Values::SIntValueOptions{.min = 1, .max = 5});
+                          "Number of distinct depth levels (1-16); windows beyond still join the deck at the deepest level", 8,
+                          Config::Values::SIntValueOptions{.min = 1, .max = 16});
     g_fLayer1Scale   = makeConfigValue<CFloatValue>("plugin:focusZ:layer_1_scale",
-                          "Scale factor for background layer 1 (0.5–1.0)", 0.85f,
-                          Config::Values::SFloatValueOptions{.min = 0.5f, .max = 1.0f});
+                          "Scale factor for background layer 1 (0.4–1.0)", 0.62f,
+                          Config::Values::SFloatValueOptions{.min = 0.4f, .max = 1.0f});
     g_fLayer2Scale   = makeConfigValue<CFloatValue>("plugin:focusZ:layer_2_scale",
-                          "Scale factor for background layer 2 (0.3–1.0)", 0.70f,
+                          "Scale factor for background layer 2 (0.3–1.0)", 0.42f,
                           Config::Values::SFloatValueOptions{.min = 0.3f, .max = 1.0f});
     g_fLayer1Opacity = makeConfigValue<CFloatValue>("plugin:focusZ:layer_1_opacity",
-                          "Opacity for background layer 1 (0.1–1.0)", 0.7f,
+                          "Opacity for background layer 1 (0.1–1.0)", 0.5f,
                           Config::Values::SFloatValueOptions{.min = 0.1f, .max = 1.0f});
     g_fLayer2Opacity = makeConfigValue<CFloatValue>("plugin:focusZ:layer_2_opacity",
-                          "Opacity for background layer 2 (0.1–1.0)", 0.4f,
+                          "Opacity for background layer 2 (0.1–1.0)", 0.2f,
                           Config::Values::SFloatValueOptions{.min = 0.1f, .max = 1.0f});
     g_bLayer1Blur    = makeConfigValue<CBoolValue>("plugin:focusZ:layer_1_blur",
                           "Enable blur on background layer 1", true, {});
@@ -87,6 +89,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     // Register all config values with Hyprland
     bool ok = true;
     ok &= HyprlandAPI::addConfigValueV2(PHANDLE, g_bEnabled);
+    ok &= HyprlandAPI::addConfigValueV2(PHANDLE, g_bStacking);
     ok &= HyprlandAPI::addConfigValueV2(PHANDLE, g_iMaxLayers);
     ok &= HyprlandAPI::addConfigValueV2(PHANDLE, g_fLayer1Scale);
     ok &= HyprlandAPI::addConfigValueV2(PHANDLE, g_fLayer2Scale);

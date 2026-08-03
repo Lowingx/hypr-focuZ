@@ -22,6 +22,13 @@ struct SAppliedState {
     PHLWINDOWREF window;
     int          depth     = -1;
     bool         decorated = false;
+    // Stacking: whether this window was floated by us, and its state before that.
+    bool floatingBefore  = false;
+    bool floatingManaged = false;
+    // Whether we have already applied the default front card box for the current
+    // stint as the focused window. Once set, the user owns the front window's
+    // box (resize/drag) and layoutStack reads its live geometry.
+    bool frontBoxSet = false;
 };
 
 class CDepthFocusManager {
@@ -59,9 +66,20 @@ class CDepthFocusManager {
     // win addr -> depth, rebuilt on stack mutations, O(1) read in the render hook.
     std::unordered_map<uintptr_t, int> m_depthCache;
 
+    // Last-seen value of plugin:focusZ:stacking, so toggles force a re-apply.
+    bool m_stackingActive = true;
+
+    // The wallpaper layer surface pulled back into the depth scene (dimmed) while
+    // the stack is active; geometry is NOT touched (the compositor owns layer
+    // arrangement and reconfigures the client), only the layer's fade alpha.
+    PHLLSREF m_wallpaper;
+    bool     m_wallpaperDimmed = false;
+
     void rebuildStack();
     void applyDepthToWindow(PHLWINDOW pWindow, int depth);
     void restoreWindow(PHLWINDOW pWindow);
     void refreshDepthCache();
     void promoteWindow(PHLWINDOW pWindow);
+    void layoutStack();
+    void pullWallpaper(bool pull);
 };

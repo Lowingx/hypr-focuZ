@@ -6,6 +6,7 @@
 inline HANDLE PHANDLE = nullptr;
 
 inline SP<Config::Values::CBoolValue>  g_bEnabled;
+inline SP<Config::Values::CBoolValue>  g_bStacking;
 inline SP<Config::Values::CIntValue>   g_iMaxLayers;
 inline SP<Config::Values::CFloatValue> g_fLayer1Scale;
 inline SP<Config::Values::CFloatValue> g_fLayer2Scale;

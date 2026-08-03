@@ -26,20 +26,19 @@ top troubleshooting issue in README.
 ## Loading & manual verification
 
 - Loading on this machine: there is no `hyprland.conf` `plugin =` line. The
-  Ryoku setup loads the plugin from `~/.config/hypr/modules/focusz.lua` via
-  `hl.plugin.load("~/.local/share/hyprland/plugins/focusZ.so")`. Generic
-  Hyprland installs use `plugin = <abs-path>/libfocusZ.so` instead.
-- Filename gotcha: `make install` copies `libfocusZ.so` into
-  `~/.local/share/hyprland/plugins/`, but the Ryoku module loads `focusZ.so` (an
-  older build). After installing the rewritten engine, point the module at
-  `libfocusZ.so` (or rename the installed file), then reload the session. The
-  README's load example now uses the real repo path (`<repo>/libfocusZ.so`), not
-  the stale `/home/one/hyprland-focusZ/...`.
+  Ryoku setup loads the plugin from `~/.config/hypr/modules/focusz.lua`, which
+  already points at `hl.plugin.load(home .. "/.local/share/hyprland/plugins/libfocusZ.so")`.
+  Generic Hyprland installs use `plugin = <abs-path>/libfocusZ.so` instead.
+  The README's load example uses the real repo path (`<repo>/libfocusZ.so`).
+- A new build only takes effect after a session restart: the `.so` stays resident
+  in the running Hyprland and `hyprctl plugin unload`/`load` can hand back a
+  stale handle. `make install` + restart the session (start-hyprland respawns
+  Hyprland automatically).
 - All options live under `plugin:focusZ:` and are registered by name in
-  src/main.cpp via `makeConfigValue` (`enabled`, `max_layers`, `layer_1_scale`,
-  `layer_1_opacity`, `layer_1_blur`, `layer_2_*`, `animation_speed`,
-  `center_scale`). These names must stay in sync between src/main.cpp and
-  hyprland.conf.
+  src/main.cpp via `makeConfigValue` (`enabled`, `stacking`, `max_layers`,
+  `layer_1_scale`, `layer_1_opacity`, `layer_1_blur`, `layer_2_*`,
+  `animation_speed`, `center_scale`). These names must stay in sync between
+  src/main.cpp and hyprland.conf.
 - No way to test headless. Manual loop: `hyprctl plugin list` to confirm load,
   `hyprctl getoption plugin:focusZ:enabled`, then alt-tab with ≥2 windows on a
   workspace. After disabling, `hyprctl reload` recalcs window positions.
@@ -53,10 +52,11 @@ top troubleshooting issue in README.
 - EventBus listeners MUST be stored in the `static SP<CSignalListener>` globals
   (src/main.cpp:20-24); losing the reference unregisters the callback.
 - `CDepthFocusManager` (src/DepthFocus.cpp) keeps `m_zStack` where index = layer
-  depth (0 = focused), anchored to the focused monitor (`m_monitor`) so other
-  monitors are untouched. Depth is conveyed purely by **opacity** (alpha var) and
-  the `CDepthShadowDecoration` — the only mutations ever applied to windows. Do
-  NOT reintroduce `renderModif` / `RMOD_TYPE_SCALECENTER` scaling: in Hyprland
+  depth (0 = focused), anchored to the focused monitor (`m_monitor`) and its
+  active workspace, so windows on other monitors/workspaces are untouched. Depth
+  is conveyed by **opacity** (alpha var), the `CDepthShadowDecoration`, and the
+  `CScaleTransformer` (per-window scale). Do NOT reintroduce `renderModif` /
+  `RMOD_TYPE_SCALECENTER` scaling: in Hyprland
   0.56.1 `m_renderData.renderModif` is a single global applied to every pass
   element at draw time (`CRenderPass::render`, Renderer.cpp:187-195, runs after
   all RENDER_* hooks of the walk), is never reset by `beginRender`/`endRender`,
@@ -80,14 +80,80 @@ top troubleshooting issue in README.
   unwinds windows evicted past `max_layers`, focused, disabled, or closed —
   including removing the `CDepthShadowDecoration` (which is otherwise never
   removed, and used to keep drawing on windows that returned to layer 0).
-- `layer_1_scale` / `layer_2_scale` / `center_scale` config values are registered
-  for config compatibility but **inert**: per-window visual scaling is impossible
-  via `renderModif` (see the gotcha above), so `getTransformForLayer` still
-  computes a scale but nothing consumes it.
+- `layer_1_scale` / `layer_2_scale` are consumed by `CScaleTransformer`
+  (src/ScaleTransformer.cpp), a `Render::IWindowTransformer` attached per-window
+  (`setWindowScale` in DepthFocus.cpp). It's the only render-safe per-window
+  transform in 0.56.1: the window renders into its own fb at `transform()`, which
+  is blitted back 1:1 by `drawTransformedWindow` (ElementRenderer.cpp:501-624).
+  Depth 0 (focused) and restored windows drop the transformer to stay on the
+  cheap direct path. `center_scale` is still registered but inert.
+- Stacking (src/DepthFocus.cpp `layoutStack`): when `plugin:focusZ:stacking` is
+  on, stack windows are floated via `g_layoutManager->changeFloatingMode`
+  (LayoutManager.cpp:76 → `space->toggleTargetFloating` → `m_algorithm->setFloating`
+  → `recalculate()`) and positioned with `m_target->setPositionGlobal`. This is
+  safe against the tiled-window oscillation above because `CWindowTarget::updatePos`
+  applies a floating window's box directly (`setBox(m_box.logicalBox)`), never
+  through the tiling algorithm. IMPORTANT: focus via `cyclenext` does NOT raise
+  floating windows — `bringTargetToTop` is a no-op outside groups — and the
+  renderer walks `Desktop::windowState()->windows()` in order (later = on top),
+  so `layoutStack` calls `Desktop::windowState()->raise()` deepest→focused every
+  stack mutation to keep the focused window on top. Restoring un-floats only
+  windows WE floated (`SAppliedState::floatingManaged` + `floatingBefore`);
+  user-floated windows are left alone. Windows are anchored to the monitor's
+  active workspace only (`rebuildStack` filters `m_workspace ==
+  anchor->m_activeWorkspace`), so off-workspace windows are never floated.
+  Fullscreen windows are skipped.
+- In stacked mode the layer scale is carried by the window's **box**, not the
+  `CScaleTransformer`: the focused card starts at `FRONT_SCALE` (0.70) of the
+  base box (workarea minus `MARGIN` 48 px), centered — and is pinned **only
+  once per stint** (`SAppliedState::frontBoxSet`, reset whenever a window leaves
+  depth 0 in `applyDepthToWindow`). While it stays focused, the user owns the
+  front window's box (resizable/draggable): `layoutStack` reads its live
+  geometry via `w->m_target->position()` (→ `m_box.logicalBox`) and anchors
+  every back card to that box, so the deck always tracks the focused card. Each
+  deeper card is shrunk to `frontBox * getTransformForLayer(i).scale` and parks
+  it in one of the front card's **four corners**, pushed diagonally outward by
+  `PEEK_MIN`..`PEEK_MAX` (20–40 px, per-window hashed so positions never jitter
+  across focus changes) — the deck fans out to the screen's extremities, one
+  back card per corner, so every card is clearly visible behind the opaque front
+  one. Corner is assigned by layer index (`(i - 1) & 3`). `MARGIN` is larger
+  than `PEEK_MAX` so cards stay on-screen without clamping. `applyDepthToWindow`
+  therefore drops the transformer (`setWindowScale(pWindow, 1.0f)`) while
+  stacking is on — keeping it would double-scale (box × render). The
+  `m_stackingActive` member detects a runtime `stacking` toggle in
+  `applyAllDepthTransforms`: turning off restores every stack window and clears
+  the stack; turning on rebuilds it.
+- Opacity is applied per-window via `pWindow->alpha(Desktop::View::WINDOW_ALPHA_ACTIVE)`
+  (Hyprland 0.56: `CWindow::opaque()` returns false when this channel != 1, and
+  `alphaTotal()` = product of all alpha channels, so a single channel set does
+  drive final translucency for back windows; there is no per-focus alpha channel
+  in this version). Back cards MUST protrude past the focused card to be seen —
+  an opaque focused card covers any card fully inside its footprint, which is
+  why the earlier "scatter within the pile area" builds looked unchanged and
+  showed no blur.
+- `max_layers` is 1–16, default 8. `getTransformForLayer` extrapolates beyond
+  layer 2 (scale −0.13/layer, opacity −0.18/layer, floored at 0.22/0.05), so adding
+  more stack slots needs no new config keys.
 - `layer_1_blur` / `layer_2_blur` config values are registered for config
   compatibility but **inert**: the plugin API only has an on/off `noblur` window
   rule, no per-window blur radius, so `getTransformForLayer` intentionally does
-  not read them.
+  not read them. "Blur behind" is free: global `decoration:blur:enabled` is on
+  on this machine, and the Ryoku module `~/.config/hypr/modules/focusz.lua`
+  overrides `decoration:blur` to a strong clean profile (size 30, passes 8,
+  noise 0.0) so the translucent background cards blur what's behind them deeply
+  without grain; the focused window is opaque and stays crisp. Front card starts
+  at `FRONT_SCALE` (0.70) of the base box — keep the back-card corners clamped to
+  the workarea so cards never run off-screen.
+- The wallpaper is pulled back into the depth scene via `pullWallpaper` (called
+  from `layoutStack`): the first mapped surface in
+  `monitor->m_layerSurfaceLayers[0]` (BACKGROUND layer, matched by layer, not
+  namespace — swww/hyprpaper/mpvpaper all differ) gets its `LS_ALPHA_FADE`
+  channel set to `WALLPAPER_DIM` (0.65) while the stack is live, restored to 1.0
+  when the stack is cleared/disabled. Geometry is deliberately NOT touched:
+  `arrangeLayerArray` (Renderer.cpp:2556) re-derives `m_geometry` from the
+  client's `desiredSize` on every arrange and `configure()`s the client — any
+  scale/box we set would be overwritten (and could resize-loop). Alpha is the
+  only safe channel.
 - `CDepthShadowDecoration` (src/DepthShadow.cpp) is an `IHyprWindowDecoration`
   subclass drawing the depth-varying shadow.
 - `src/globals.hpp` holds `PHANDLE` + shared config-value smart pointers consumed
