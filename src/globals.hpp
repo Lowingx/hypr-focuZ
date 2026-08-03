@@ -15,3 +15,4 @@ inline SP<Config::Values::CBoolValue>  g_bLayer1Blur;
 inline SP<Config::Values::CBoolValue>  g_bLayer2Blur;
 inline SP<Config::Values::CFloatValue> g_fAnimationSpeed;
 inline SP<Config::Values::CBoolValue>  g_bCenterScale;
+inline SP<Config::Values::CBoolValue>  g_bDebug;

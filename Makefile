@@ -20,11 +20,10 @@ TARGET    = libfocusZ.so
 SOURCES   = $(wildcard $(SRCDIR)/*.cpp)
 OBJECTS   = $(patsubst $(SRCDIR)/%.cpp,$(OBJDIR)/%.o,$(SOURCES))
 
-# Hyprland plugin install path
-PLUGIN_DIR = $(shell hyprctl plugins 2>/dev/null | head -1 | sed 's/.*: //')
-ifeq ($(strip $(PLUGIN_DIR)),)
-PLUGIN_DIR = $(HOME)/.local/share/hyprland/plugins
-endif
+# Hyprland plugin install path. There is no arg-less `hyprctl` command that
+# reports this (hyprctl plugins errors out), so use the standard location;
+# override with `make install PLUGIN_DIR=...` if needed.
+PLUGIN_DIR ?= $(HOME)/.local/share/hyprland/plugins
 
 .PHONY: all clean install
 

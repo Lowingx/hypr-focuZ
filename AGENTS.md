@@ -54,24 +54,36 @@ top troubleshooting issue in README.
   (src/main.cpp:20-24); losing the reference unregisters the callback.
 - `CDepthFocusManager` (src/DepthFocus.cpp) keeps `m_zStack` where index = layer
   depth (0 = focused), anchored to the focused monitor (`m_monitor`) so other
-  monitors are untouched. Scale is applied in **two** places that must stay in
-  sync: position/size animation goals (`applyDepthToWindow`) and the
-  `RENDER_PRE_WINDOW` render-modification hook that pushes
-  `RMOD_TYPE_SCALECENTER` (src/DepthFocus.cpp:340-363). Change one and the visual
-  breaks.
+  monitors are untouched. Depth is conveyed purely by **opacity** (alpha var) and
+  the `CDepthShadowDecoration` — the only mutations ever applied to windows. Do
+  NOT reintroduce `renderModif` / `RMOD_TYPE_SCALECENTER` scaling: in Hyprland
+  0.56.1 `m_renderData.renderModif` is a single global applied to every pass
+  element at draw time (`CRenderPass::render`, Renderer.cpp:187-195, runs after
+  all RENDER_* hooks of the walk), is never reset by `beginRender`/`endRender`,
+  and the only reset path (`CRendererHintsPassElement::draw`,
+  ElementRenderer.cpp:190-194) is pushed only for workspace translate/scale
+  animations. A `SCALECENTER` push in `RENDER_PRE_WINDOW` leaked to the focused
+  window, wallpaper/layers/cursor, and across frames, corrupting damage tracking
+  and pegging the main thread in a render storm that froze the session. Geometry
+  must not be resized either (`sizeAnimation`/`positionAnimation`): physically
+  resizing tiled windows fights Hyprland's layout engine (which re-arranges them
+  back every frame), causing a main-thread oscillation that froze the whole
+  session — and it double-scaled background windows (physical * render).
 - Hot-path cost is the design invariant: the render hook reads depth from
   `m_depthCache` (O(1), rebuilt only on stack mutations), and
   `applyAllDepthTransforms` skips windows whose depth is unchanged so they are
   not re-damaged. Keep it that way — do not reintroduce scans or unconditional
   damage on the per-frame path.
 - `m_applied` (win addr -> `SAppliedState`) is the single source of truth for
-  each window's depth, decoration presence, and captured unscaled geometry.
-  `applyDepthToWindow` captures that geometry on first background touch and
-  re-captures only when the layout goal grows beyond `orig * scale`; depth-0
-  restore reads it back so scaling never compounds. `restoreWindow` is what
+  each window's depth and decoration presence. No geometry or render data is
+  mutated, so nothing is captured or restored. `restoreWindow` is what
   unwinds windows evicted past `max_layers`, focused, disabled, or closed —
   including removing the `CDepthShadowDecoration` (which is otherwise never
   removed, and used to keep drawing on windows that returned to layer 0).
+- `layer_1_scale` / `layer_2_scale` / `center_scale` config values are registered
+  for config compatibility but **inert**: per-window visual scaling is impossible
+  via `renderModif` (see the gotcha above), so `getTransformForLayer` still
+  computes a scale but nothing consumes it.
 - `layer_1_blur` / `layer_2_blur` config values are registered for config
   compatibility but **inert**: the plugin API only has an on/off `noblur` window
   rule, no per-window blur radius, so `getTransformForLayer` intentionally does

@@ -1,29 +1,17 @@
 #include "DepthFocus.hpp"
 #include "DepthShadow.hpp"
+#include "DebugLog.hpp"
 #include <hyprland/src/desktop/Workspace.hpp>
 #include <hyprland/src/desktop/DesktopTypes.hpp>
 #include <cmath>
 
-// Helper: compute the gap-to-center offset for a window being scaled down.
-// When a window at (wx, wy) with size (ww, wh) is scaled by `scale`,
-// we want it to appear centered at the same position.
-static Vector2D scaleOffsetForCenter(const Vector2D& wpos, const Vector2D& wsize, float scale) {
-    if (!g_bCenterScale || !g_bCenterScale->value())
-        return {};
+static std::string winStr(PHLWINDOW pWindow) {
+    return pWindow ? "0x" + std::to_string((uintptr_t)pWindow.get()) : "(null)";
+}
 
-    // Desired visual size after scale
-    const float newW = wsize.x * scale;
-    const float newH = wsize.y * scale;
-
-    // Center of original window
-    const float cx = wpos.x + wsize.x / 2.0f;
-    const float cy = wpos.y + wsize.y / 2.0f;
-
-    // New top-left so that the center stays the same
-    const float newX = cx - newW / 2.0f;
-    const float newY = cy - newH / 2.0f;
-
-    return {newX - wpos.x, newY - wpos.y};
+// Sync the debug logger with the plugin:focusZ:debug config value (runtime toggle).
+static void syncDebug() {
+    DebugLog::setEnabled(g_bDebug && g_bDebug->value());
 }
 
 CDepthFocusManager::CDepthFocusManager() {
@@ -75,6 +63,8 @@ void CDepthFocusManager::init() {
 }
 
 void CDepthFocusManager::rebuildStack() {
+    DebugLog::log("rebuildStack enter");
+
     // Disabled: unwind every window we touched and drop all state.
     if (g_bEnabled && !g_bEnabled->value()) {
         for (const auto& ref : m_zStack) {
@@ -121,30 +111,42 @@ void CDepthFocusManager::rebuildStack() {
     for (auto& w : next)
         m_zStack.emplace_back(w);
 
+    DebugLog::log("rebuildStack stack_size=" + std::to_string(m_zStack.size()) + " monitor=" +
+                  (m_monitor.lock() ? "set" : "none"));
+
     applyAllDepthTransforms();
+    DebugLog::log("rebuildStack exit");
 }
 
 void CDepthFocusManager::onFocusChange(PHLWINDOW pWindow, Desktop::eFocusReason /*reason*/) {
+    syncDebug();
     if (g_bEnabled && !g_bEnabled->value())
         return;
     if (!valid(pWindow) || !pWindow->m_isMapped)
         return;
 
+    DebugLog::log("onFocusChange win=" + winStr(pWindow));
+
     // Cross-monitor (or first) focus: re-anchor the whole stack.
     if (!m_monitor.lock() || !(pWindow->m_monitor.lock() == m_monitor.lock())) {
         rebuildStack();
+        DebugLog::log("onFocusChange exit (rebuild)");
         return;
     }
 
     promoteWindow(pWindow);
     applyAllDepthTransforms();
+    DebugLog::log("onFocusChange exit");
 }
 
 void CDepthFocusManager::onWindowOpen(PHLWINDOW pWindow) {
+    syncDebug();
     if (g_bEnabled && !g_bEnabled->value())
         return;
     if (!valid(pWindow) || !pWindow->m_isMapped)
         return;
+
+    DebugLog::log("onWindowOpen win=" + winStr(pWindow));
 
     // Only windows on the anchor monitor join this stack.
     if (m_monitor.lock() && !(pWindow->m_monitor.lock() == m_monitor.lock()))
@@ -152,9 +154,11 @@ void CDepthFocusManager::onWindowOpen(PHLWINDOW pWindow) {
 
     promoteWindow(pWindow);
     applyAllDepthTransforms();
+    DebugLog::log("onWindowOpen exit");
 }
 
 void CDepthFocusManager::onWindowClose(PHLWINDOW pWindow) {
+    syncDebug();
     if (g_bEnabled && !g_bEnabled->value())
         return;
 
@@ -171,6 +175,8 @@ void CDepthFocusManager::onWindowClose(PHLWINDOW pWindow) {
     if (!found)
         return;
 
+    DebugLog::log("onWindowClose win=" + winStr(pWindow) + " stack_after=" + std::to_string(m_zStack.size()));
+
     // The window is gone; drop tracking so restore never touches a dead window.
     m_applied.erase((uintptr_t)pWindow.get());
 
@@ -178,6 +184,7 @@ void CDepthFocusManager::onWindowClose(PHLWINDOW pWindow) {
         m_monitor = {};
 
     applyAllDepthTransforms();
+    DebugLog::log("onWindowClose exit");
 }
 
 void CDepthFocusManager::promoteWindow(PHLWINDOW pWindow) {
@@ -196,6 +203,8 @@ void CDepthFocusManager::promoteWindow(PHLWINDOW pWindow) {
     const int maxLayers = g_iMaxLayers ? g_iMaxLayers->value() : 3;
     if ((int)m_zStack.size() > maxLayers)
         m_zStack.resize(maxLayers);
+
+    DebugLog::log("promoteWindow win=" + winStr(pWindow) + " stack_size=" + std::to_string(m_zStack.size()));
 }
 
 void CDepthFocusManager::applyAllDepthTransforms() {
@@ -226,6 +235,9 @@ void CDepthFocusManager::applyAllDepthTransforms() {
 
         applyDepthToWindow(w, (int)i);
     }
+
+    DebugLog::log("applyAllDepthTransforms exit (applied=" + std::to_string(m_applied.size()) +
+                  " stack=" + std::to_string(m_zStack.size()) + ")");
 }
 
 void CDepthFocusManager::applyDepthToWindow(PHLWINDOW pWindow, int depth) {
@@ -239,41 +251,21 @@ void CDepthFocusManager::applyDepthToWindow(PHLWINDOW pWindow, int depth) {
     state.window = pWindow;
     state.depth  = depth;
 
+    DebugLog::log("applyDepthToWindow win=" + winStr(pWindow) + " depth=" + std::to_string(depth) +
+                  " opacity=" + std::to_string(transform.opacity) + " (scale inert)");
+
+    // Opacity is a pure render property — safe on tiled and floating windows alike.
     auto& alphaVar = pWindow->alpha(Desktop::View::WINDOW_ALPHA_ACTIVE);
     *alphaVar = transform.opacity;
 
-    auto& sizeAnim = pWindow->sizeAnimation();
-    auto& posAnim  = pWindow->positionAnimation();
-
-    if (depth <= 0) {
-        // Focused/restored: full alpha plus original geometry. Restoring size/pos here
-        // is what unwinds windows (esp. floating, which layout never re-arranges) that
-        // were scaled while in the background. orig is never re-captured at depth 0 so
-        // rapid focus cycles can't compound the scale.
-        if (!state.origValid) {
-            state.origSize  = sizeAnim->goal();
-            state.origPos   = posAnim->goal();
-            state.origValid = true;
-        }
-        *sizeAnim = state.origSize;
-        *posAnim  = state.origPos;
-    } else {
-        // Capture the unscaled layout geometry on first touch; re-capture if the
-        // layout resized us up (e.g. another window closed) so scale never compounds.
-        if (!state.origValid ||
-            sizeAnim->goal().x > state.origSize.x * transform.scale + 0.5f ||
-            sizeAnim->goal().y > state.origSize.y * transform.scale + 0.5f) {
-            state.origSize  = sizeAnim->goal();
-            state.origPos   = posAnim->goal();
-            state.origValid = true;
-        }
-
-        *sizeAnim = state.origSize * transform.scale;
-        if (g_bCenterScale && g_bCenterScale->value()) {
-            const auto offset = scaleOffsetForCenter(state.origPos, state.origSize, transform.scale);
-            *posAnim = state.origPos + offset;
-        }
-    }
+    // NOTE: geometry is intentionally NOT touched here, and renderModif is NOT
+    // used either. Physically resizing windows (sizeAnim/posAnim) fought
+    // Hyprland's layout engine, which re-arranges tiled windows back every frame
+    // — that oscillation pegged the main thread and froze the session. Pushing
+    // RMOD_TYPE_SCALECENTER into m_renderData.renderModif was also a freeze: the
+    // global modif is applied to every pass element at draw time and never reset
+    // (see onRenderStage), so the scale leaked to the focused window and across
+    // frames. Depth is conveyed purely by opacity + shadow below.
 
     // Depth-varying shadow decoration: background windows only.
     if (depth > 0) {
@@ -316,15 +308,11 @@ void CDepthFocusManager::restoreWindow(PHLWINDOW pWindow) {
         }
     }
 
-    // Reset to the original unscaled geometry.
-    const uintptr_t addr = (uintptr_t)pWindow.get();
-    auto            it   = m_applied.find(addr);
-    if (it != m_applied.end() && it->second.origValid) {
-        *pWindow->alpha(Desktop::View::WINDOW_ALPHA_ACTIVE) = 1.0f;
-        *pWindow->sizeAnimation()  = it->second.origSize;
-        *pWindow->positionAnimation() = it->second.origPos;
-        g_pHyprRenderer->damageWindow(pWindow, true);
-    }
+    // Reset alpha to full. Geometry is untouched: scaling was render-only.
+    *pWindow->alpha(Desktop::View::WINDOW_ALPHA_ACTIVE) = 1.0f;
+    g_pHyprRenderer->damageWindow(pWindow, true);
+
+    DebugLog::log("restoreWindow win=" + winStr(pWindow));
 }
 
 void CDepthFocusManager::refreshDepthCache() {
@@ -340,24 +328,28 @@ void CDepthFocusManager::onRenderStage(eRenderStage stage) {
     if (g_bEnabled && !g_bEnabled->value())
         return;
 
-    if (stage == RENDER_PRE_WINDOW) {
-        auto& rd    = g_pHyprRenderer->m_renderData;
-        auto  pWin  = rd.currentWindow.lock();
-        if (!valid(pWin))
-            return;
-
-        // O(1) depth lookup via cache (per-frame hot path).
-        const int depth = getLayerDepth(pWin);
-        if (depth <= 0)
-            return; // Focused window: no modification
-
-        const auto transform = getTransformForLayer(depth);
-        if (transform.scale >= 0.99f)
-            return;
-
-        // Apply center-based scale modification to render data
-        rd.renderModif.modifs.push_back(std::make_pair(
-            Render::SRenderModifData::RMOD_TYPE_SCALECENTER,
-            std::any(transform.scale)));
+    // Throttled render-loop detector: if the main thread busy-loops re-rendering,
+    // these lines keep appearing while handler logs and heartbeat cpu_delta tell
+    // the rest of the story.
+    if (DebugLog::isEnabled()) {
+        static int stageCount = 0;
+        if (++stageCount % 250 == 0) {
+            auto& rd   = g_pHyprRenderer->m_renderData;
+            auto  pWin = rd.currentWindow.lock();
+            DebugLog::log("render stage=" + std::to_string((int)stage) + " n=" + std::to_string(stageCount) +
+                          " win=" + (pWin ? winStr(pWin) : std::string("(null)")));
+        }
     }
+
+    // NOTE: per-window visual scaling via m_renderData.renderModif is NOT possible
+    // on Hyprland 0.56.1. renderModif is one global SRenderModifData, applied to
+    // every pass element at draw time — CRenderPass::render executes after all
+    // RENDER_* hooks of the walk (Renderer.cpp:187-195) — and it is never reset:
+    // beginRender/endRender don't touch it, and CRendererHintsPassElement (the
+    // only reset path, ElementRenderer.cpp:190-194) is only pushed for workspace
+    // translate/scale animations. A SCALECENTER push here leaked to the focused
+    // window, to wallpaper/layers/cursor, and across frames, corrupting damage
+    // tracking and pegging the main thread in a render storm that froze the
+    // session. Depth is conveyed purely by opacity + CDepthShadowDecoration,
+    // both applied in applyDepthToWindow — no render-hook mutations.
 }

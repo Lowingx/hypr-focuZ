@@ -19,12 +19,9 @@ struct SLayerTransform {
 // Per-window bookkeeping so the hot paths (render hook, focus cycles) stay cheap:
 // depth lookups are O(1), and re-applying/damaging is skipped when nothing changed.
 struct SAppliedState {
-    PHLWINDOWREF     window;
-    int              depth      = -1;
-    bool             decorated  = false;
-    bool             origValid  = false;
-    Vector2D         origSize   = {};
-    Vector2D         origPos    = {};
+    PHLWINDOWREF window;
+    int          depth     = -1;
+    bool         decorated = false;
 };
 
 class CDepthFocusManager {

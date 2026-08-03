@@ -1,5 +1,6 @@
 #include "globals.hpp"
 #include "DepthFocus.hpp"
+#include "DebugLog.hpp"
 
 #include <hyprland/src/Compositor.hpp>
 #include <hyprland/src/desktop/DesktopTypes.hpp>
@@ -34,15 +35,21 @@ APICALL EXPORT std::string PLUGIN_API_VERSION() {
 APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     PHANDLE = handle;
 
-    // --- Version check ---
-    const std::string hash    = __hyprland_api_get_hash();
-    const std::string version = HyprlandAPI::getHyprlandVersion(handle).hash;
+    DebugLog::init();
 
-    if (hash != version) {
+    // --- Version check ---
+    // Compare the running server's API hash against the hash baked into the
+    // headers this plugin was compiled with. getHyprlandVersion().hash is only
+    // the git commit, while __hyprland_api_get_hash() is the full dependency
+    // hash string — comparing those two would always fail.
+    const std::string hash       = __hyprland_api_get_hash();
+    const std::string clientHash = __hyprland_api_get_client_hash();
+
+    if (hash != clientHash) {
         HyprlandAPI::addNotification(PHANDLE,
             "[focusZ] Version mismatch — plugin compiled for a different Hyprland build. Unloading.",
             CHyprColor{1.0, 0.2, 0.2, 1.0}, 15000);
-        throw std::runtime_error("focusZ: version mismatch");
+        throw std::runtime_error("focusZ: version mismatch | server=" + hash + " | client=" + clientHash);
     }
 
     // --- Register config values using makeConfigValue ---
@@ -74,6 +81,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
                           Config::Values::SFloatValueOptions{.min = 1.0f, .max = 20.0f});
     g_bCenterScale   = makeConfigValue<CBoolValue>("plugin:focusZ:center_scale",
                           "Scale windows toward the center of the monitor", true, {});
+    g_bDebug         = makeConfigValue<CBoolValue>("plugin:focusZ:debug",
+                          "Write debug logs + heartbeat to /tmp/focusz-debug.log", false, {});
 
     // Register all config values with Hyprland
     bool ok = true;
@@ -87,12 +96,16 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     ok &= HyprlandAPI::addConfigValueV2(PHANDLE, g_bLayer2Blur);
     ok &= HyprlandAPI::addConfigValueV2(PHANDLE, g_fAnimationSpeed);
     ok &= HyprlandAPI::addConfigValueV2(PHANDLE, g_bCenterScale);
+    ok &= HyprlandAPI::addConfigValueV2(PHANDLE, g_bDebug);
 
     if (!ok) {
         HyprlandAPI::addNotification(PHANDLE,
             "[focusZ] Failed to register some config values.",
             CHyprColor{1.0, 0.5, 0.2, 1.0}, 8000);
     }
+
+    // Sync debug logger with the plugin:focusZ:debug config value (or FOCUSZ_DEBUG env).
+    DebugLog::setEnabled(g_bDebug && g_bDebug->value());
 
     // --- Create the depth focus manager ---
     g_pDepthFocusManager = Hyprutils::Memory::makeUnique<CDepthFocusManager>();
@@ -135,6 +148,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
                 g_pDepthFocusManager->onRenderStage(stage);
         });
 
+    DebugLog::log("focusZ listeners registered");
+
     // --- Register dispatcher for keybind cycling ---
     HyprlandAPI::addDispatcherV2(PHANDLE, "focusZ:cycle",
         [](std::string) -> SDispatchResult {
@@ -150,6 +165,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     HyprlandAPI::addNotification(PHANDLE,
         "[focusZ] Plugin loaded — Z-Axis Depth Focus Layout active.",
         CHyprColor{0.2, 0.8, 0.4, 1.0}, 4000);
+
+    DebugLog::log("focusZ plugin init done");
 
     return {"focusZ",
             "Z-Axis Depth Focus Layout — 3D stacking visual effect based on focus depth",
@@ -169,4 +186,6 @@ APICALL EXPORT void PLUGIN_EXIT() {
     HyprlandAPI::addNotification(PHANDLE,
         "[focusZ] Plugin unloaded.",
         CHyprColor{0.5, 0.5, 0.5, 1.0}, 3000);
+
+    DebugLog::shutdown();
 }
