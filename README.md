@@ -9,8 +9,13 @@ recede visually with reduced scale, opacity, and dynamic shadows.
 | Layer | Position | Scale | Opacity | Blur | Shadow |
 |-------|----------|-------|---------|------|--------|
 | 0 (focused) | Foreground | 1.00 | 1.0 | No | Max |
-| -1 | Background | 0.85 | 0.7 | Yes | Medium |
-| -2 | Background | 0.70 | 0.4 | Yes | Min |
+| -1 | Background | 0.85 | 0.7 | Global* | Medium |
+| -2 | Background | 0.70 | 0.4 | Global* | Min |
+
+\* Blur is applied by Hyprland's global `blur:size` setting. The plugin API has no
+per-window blur-radius control (only an on/off `noblur` window rule), so the
+`layer_1_blur` / `layer_2_blur` toggles are reserved but not yet wired to
+anything. Background windows blur exactly as much as your global `blur:size`.
 
 Switching focus triggers a smooth interpolation animation that swaps the positions
 in the Z-matrix.
@@ -64,6 +69,8 @@ plugin {
         layer_2_opacity = 0.4     # 0.1 - 1.0
 
         # Whether to apply blur to background layers
+        # NOTE: reserved — per-window blur radius isn't part of the plugin API;
+        # blur follows the global blur:size. These toggles currently do nothing.
         layer_1_blur = true
         layer_2_blur = true
 
@@ -90,21 +97,28 @@ The plugin hooks into three core Hyprland systems:
 
 1. **EventBus listeners** — `window.active`, `window.open`, `window.close`,
    `window.destroy` events maintain an ordered Z-stack of windows. On focus change,
-   the newly focused window is promoted to Layer 0 and all others demoted.
+   the newly focused window is promoted to Layer 0 and all others demoted. The
+   stack is anchored to the focused window's monitor, so windows on other monitors
+   are never scaled or reordered.
 
 2. **Per-window animated transforms** — Background windows get their
    `WINDOW_ALPHA_ACTIVE` animation variable goal set to the layer's opacity, and
    their `sizeAnimation`/`positionAnimation` goals updated to produce the scaled,
    centered effect. Hyprland's native animation system handles the smooth
-   interpolation.
+   interpolation. The plugin records each window's original unscaled geometry and
+   restores it when the window leaves the stack (evicted past `max_layers`,
+   focused, disabled, or closed), so scaling never compounds.
 
 3. **Render-stage hook** — A `RENDER_PRE_WINDOW` listener injects a
    `RMOD_TYPE_SCALECENTER` modification into the render data for each background
-   window, applying the per-layer scale factor during the actual draw.
+   window, applying the per-layer scale factor during the actual draw. Depth
+   lookup here is O(1) (cached per window), and windows whose layer didn't change
+   are not re-damaged.
 
 4. **Custom shadow decoration** — Background windows receive a
    `CDepthShadowDecoration` (`IHyprWindowDecoration` subclass) that draws a shadow
-   whose range/offset scales with the window's layer depth.
+   whose range/offset scales with the window's layer depth. The decoration is
+   removed again when the window returns to Layer 0.
 
 ## Architecture
 
@@ -135,3 +149,9 @@ windows but needs at least 2 windows on a workspace to show depth).
 
 **Window position looks off after disabling** — Run `hyprctl reload` to let
 Hyprland's layout recalculate window positions.
+
+**Multi-monitor** — The depth stack is anchored to the focused monitor. Windows on
+other monitors are left untouched; the stack re-anchors when focus crosses monitors.
+
+**Blur not changing** — Expected. Blur size is global (`blur:size`); the plugin
+cannot scale blur radius per window (see the config note above).
