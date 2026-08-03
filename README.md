@@ -41,11 +41,17 @@ cmake -B build && cmake --build build
 make install    # copies to ~/.local/share/hyprland/plugins/
 ```
 
-Then enable in `~/.config/hypr/hyprland.conf`:
+Then enable it in your Hyprland config:
 
 ```hyprlang
-plugin = /home/one/hyprland-focusZ/libfocusZ.so
+plugin = /path/to/hypr-focuZ/libfocusZ.so
 ```
+
+> On the Ryoku setup this repo is developed on, the plugin is loaded from
+> `~/.config/hypr/modules/focusz.lua` (`hl.plugin.load(...)`) rather than a
+> `plugin =` line. Note that the module loads `focusZ.so`, while `make install`
+> produces `libfocusZ.so` — keep the installed filename and the module path in
+> sync after installing.
 
 ## Configuration
 
@@ -123,18 +129,18 @@ The plugin hooks into three core Hyprland systems:
 ## Architecture
 
 ```
-main.cpp            Plugin entry: PLUGIN_API_VERSION / PLUGIN_INIT / PLUGIN_EXIT
+src/main.cpp            Plugin entry: PLUGIN_API_VERSION / PLUGIN_INIT / PLUGIN_EXIT
                     Registers config values, EventBus listeners, dispatcher
                     Version-hash check against running Hyprland
 
-DepthFocus.hpp/cpp  CDepthFocusManager — the core depth engine
+src/DepthFocus.hpp/cpp  CDepthFocusManager — the core depth engine
                     Maintains Z-stack, computes per-layer transforms,
                     applies animations, render-stage hook
 
-DepthShadow.hpp/cpp CDepthShadowDecoration — IHyprWindowDecoration subclass
+src/DepthShadow.hpp/cpp CDepthShadowDecoration — IHyprWindowDecoration subclass
                     Draws depth-aware shadows (range/offset vary by layer)
 
-globals.hpp         Plugin handle + config value smart pointers
+src/globals.hpp         Plugin handle + config value smart pointers
 ```
 
 ## Troubleshooting

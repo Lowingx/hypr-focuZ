@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Collect sources
-file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "*.cpp" "*.hpp")
+file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "src/*.cpp" "src/*.hpp")
 
 # Build as shared library
 add_library(focusZ SHARED ${SOURCES})
@@ -18,7 +18,7 @@ pkg_check_modules(HYPRLAND REQUIRED IMPORTED_TARGET hyprland)
 target_link_libraries(focusZ PRIVATE PkgConfig::HYPRLAND rt)
 
 # Include paths
-target_include_directories(focusZ PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(focusZ PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 # Ensure symbols are exported
 set_target_properties(focusZ PROPERTIES

@@ -1,8 +1,8 @@
 # Simple Makefile for building focusZ plugin
 # Usage: make or make install
 
-CXX      ?= g++
-CXXFLAGS ?= -O2 -Wall -Wextra
+CXX        ?= g++
+CXXFLAGS   ?= -O2 -Wall -Wextra
 PKG_CONFIG ?= pkg-config
 
 # Required pkg-config packages
@@ -12,13 +12,16 @@ PKGS := hyprland pixman-1 libdrm
 CXXFLAGS += -shared -fPIC -std=c++2b $(shell $(PKG_CONFIG) --cflags $(PKGS))
 LDFLAGS  += $(shell $(PKG_CONFIG) --libs $(PKGS))
 
-# Output
+# Layout
+SRCDIR   := src
+OBJDIR   := build
 TARGET    = libfocusZ.so
-SOURCES   = $(wildcard *.cpp)
-OBJECTS   = $(SOURCES:.cpp=.o)
+
+SOURCES   = $(wildcard $(SRCDIR)/*.cpp)
+OBJECTS   = $(patsubst $(SRCDIR)/%.cpp,$(OBJDIR)/%.o,$(SOURCES))
 
 # Hyprland plugin install path
-PLUGIN_DIR = $(shell hyprctl plugins 2>/dev/null | head -1 | sed 's/.*: //') 
+PLUGIN_DIR = $(shell hyprctl plugins 2>/dev/null | head -1 | sed 's/.*: //')
 ifeq ($(strip $(PLUGIN_DIR)),)
 PLUGIN_DIR = $(HOME)/.local/share/hyprland/plugins
 endif
@@ -30,19 +33,17 @@ all: $(TARGET)
 $(TARGET): $(OBJECTS)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 
-%.o: %.cpp
+$(OBJDIR)/%.o: $(SRCDIR)/%.cpp $(wildcard $(SRCDIR)/*.hpp)
+	@mkdir -p $(OBJDIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 install: $(TARGET)
 	install -d $(DESTDIR)$(PLUGIN_DIR)
 	install -m 755 $(TARGET) $(DESTDIR)$(PLUGIN_DIR)/$(TARGET)
 	@echo "Installed to $(DESTDIR)$(PLUGIN_DIR)/$(TARGET)"
-	@echo "Add to your hyprland.conf:"
-	@echo "  plugin {"
-	@echo "    focusZ {"
-	@echo "      enabled = true"
-	@echo "    }"
-	@echo "  }"
+	@echo "Enable it in your Hyprland config:"
+	@echo "  plugin = /abs/path/to/$(TARGET)"
+	@echo "  plugin { focusZ { enabled = true } }"
 
 clean:
-	rm -f $(OBJECTS) $(TARGET)
+	rm -rf $(OBJDIR) $(TARGET)

@@ -33,7 +33,7 @@ violates one is not ready to merge regardless of how it's tested.
 4. **ABI lock.** The plugin is ABI-locked to the exact Hyprland build it was
    compiled against (`PLUGIN_INIT` hash check). Any Hyprland upgrade requires
    `make clean && make` + reload.
-5. **Config name sync.** Options are registered in `main.cpp`
+5. **Config name sync.** Options are registered in `src/main.cpp`
    (`makeConfigValue`) and must match `hyprland.conf` under `plugin:focusZ:`
    exactly.
 6. **No headless tests.** A Hyprland plugin cannot be tested headless. The
@@ -48,7 +48,7 @@ violates one is not ready to merge regardless of how it's tested.
 - The relevant manual checklist passes (see M2.1).
 - If the change is architectural, an ADR was written or updated.
 - If config or behavior changed, README / AGENTS.md / KANBAN.md were updated.
-- Config option names in `main.cpp` and `hyprland.conf` stay in sync.
+- Config option names in `src/main.cpp` and `hyprland.conf` stay in sync.
 
 ## 4. Milestones
 
@@ -93,7 +93,7 @@ the roadmap safe to parallelize.*
 - **ADR-002** `SAppliedState` + original-geometry tracking (anti-compounding).
 - **ADR-003** Shadow-decoration lifecycle and the blur API limitation.
 - **ADR-004** ABI-lock policy: hash check, rebuild flow, upgrade procedure.
-- **ADR-005** Config ownership: `main.cpp` registration ↔ `hyprland.conf`
+- **ADR-005** Config ownership: `src/main.cpp` registration ↔ `hyprland.conf`
   sync contract.
 
 **Acceptance (M1.1):** `docs/adr/` exists with numbered entries; each record
