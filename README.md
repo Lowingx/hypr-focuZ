@@ -187,10 +187,6 @@ src/globals.hpp         Plugin handle + config value smart pointers
 
 ## Troubleshooting
 
-**"Version mismatch" notification on load** — The plugin must be compiled against
-the exact same Hyprland headers as the running binary. Rebuild after any Hyprland
-update: `make clean && make`.
-
 **A new build doesn't take effect** — The plugin `.so` stays resident in the
 running Hyprland; `hyprctl plugin unload`/`load` can hand back a stale handle.
 Restart the Hyprland session after `make install` to pick up a fresh build.
