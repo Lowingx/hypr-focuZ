@@ -1,7 +1,7 @@
 # focusZ Kanban
 
-Working board for the **`Lowingx/hypr-focuZ`** repository — a Hyprland plugin
-implementing a Z-axis depth-focus layout.
+The **`Lowingx/hypr-focuZ`** team board — a Hyprland plugin implementing a
+Z-axis depth-focus layout.
 
 > **Operational view.** For *why* each task exists, its scope, and its
 > definition of done, read the **[ROADMAP](ROADMAP.md)**. This board mirrors
@@ -10,25 +10,26 @@ implementing a Z-axis depth-focus layout.
 ## Board
 
 - **Platform:** GitHub Projects (v2)
-- **Owner:** `Lowingx`
 - **Repository:** `Lowingx/hypr-focuZ`
 - **Board name:** `focusZ Kanban`
 - **Board URL:** https://github.com/users/Lowingx/projects/3
 - **Status field:** `Todo` → `In Progress` → `In Review` → `Done`
 
-### One-time setup (already done on this machine)
+## How the team uses this board
 
-```bash
-gh auth refresh -s project            # grant project scopes to the token
-gh project create --owner Lowingx --title "focusZ Kanban" --format json
-gh project link <project> --owner Lowingx --repo Lowingx/hypr-focuZ
-# "Status" single-select field ships with the project template; if you recreate
-# it from scratch, updateProjectV2Field replaces the option list, so pass ALL
-# options at once: Todo, In Progress, In Review, Done.
-gh project item-add <project> --owner Lowingx --url <issue-url>
-gh project item-edit <project> --owner Lowingx --field-id <status-field-id> \
-  --single-select-option-id <option-id>
-```
+1. **Take work** — pick an open issue, assign yourself, move it to
+   `In Progress`.
+2. **Keep it moving** — update the card as the work progresses; comment when a
+   decision is made so the reasoning is on the record.
+3. **Hand off** — open a PR, move the card to `In Review`, and add a reviewer.
+4. **Verify together** — a card reaches `Done` only when the change builds and
+   loads in a live Hyprland session (there is no CI or test suite yet; see
+   AGENTS.md). Close the issue once the repo docs reflect the state.
+5. **Retrospect** — at milestone boundaries, reconcile the board against
+   `ROADMAP.md` and archive stale cards.
+
+Cards that look stuck get a `help-wanted` label. Anything that needs the
+plugin API to grow first gets `status:blocked`.
 
 ## Current items
 
@@ -43,21 +44,46 @@ gh project item-edit <project> --owner Lowingx --field-id <status-field-id> \
 | #7 | Per-layer blur radius (API limitation) | Blocked | P2 | feature | M4.1 |
 | #8 | Add CI build verification | Todo | P1 | ci | M2.2 |
 
-## Workflow
+## Operations
 
-1. **New work** — open an issue, add it to the board, set status `Todo`.
-2. **Active work** — move to `In Progress` while implementing.
-3. **Under review** — move to `In Review` once a PR (or commit) exists.
-4. **Verified** — move to `Done` only after the change builds and loads in a live
-   Hyprland session (there is no CI or test suite; see AGENTS.md).
-5. Close the issue once the state is reflected in the repo docs.
+### Project-scope access
+
+Board changes go through the `gh` CLI. Every collaborator needs the `project`
+scope on their token:
+
+```bash
+gh auth refresh -s project
+```
+
+### Recreating the board (disaster recovery)
+
+If the board is ever deleted, recreate it as follows. `gh project create`
+ships a template that already includes a `Status` field — do **not** create a
+second one.
+
+```bash
+gh project create --owner Lowingx --title "focusZ Kanban" --format json
+gh project link <project> --owner Lowingx --repo Lowingx/hypr-focuZ
+gh project item-add <project> --owner Lowingx --url <issue-url>
+```
+
+> **Gotcha:** adding a status option via `updateProjectV2Field` replaces the
+> whole option list, so when rebuilding the field, pass **all** options in one
+> call: `Todo`, `In Progress`, `In Review`, `Done`.
+
+### Milestones, priorities, areas
+
+Cards inherit their `Prio` / `Area` / `Milestone` from the `ROADMAP.md` tables
+and the issue labels (`priority:*`, `area:*`, `status:*`). Keep the two
+documents in sync when work is reprioritized.
 
 ## Notes
 
 - **ABI lock (#6)** is the top operational risk: the plugin unloads on any
-  `hyprland` version-hash mismatch. Rebuild after every package upgrade.
-- **Per-layer blur radius (#7)** is blocked by the plugin API — blur size is the
-  global `blur:size` setting; only an on/off `noblur` rule exists. The
+  `hyprland` version-hash mismatch. The whole team must rebuild after every
+  package upgrade.
+- **Per-layer blur radius (#7)** is blocked by the plugin API — blur size is
+  the global `blur:size` setting; only an on/off `noblur` rule exists. The
   `layer_*_blur` config toggles are registered but inert.
 - **Verification (#5)** is build + load in a live session; headless testing is
   impossible for a Hyprland plugin.
