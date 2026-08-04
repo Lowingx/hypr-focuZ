@@ -25,7 +25,7 @@ OBJECTS   = $(patsubst $(SRCDIR)/%.cpp,$(OBJDIR)/%.o,$(SOURCES))
 # override with `make install PLUGIN_DIR=...` if needed.
 PLUGIN_DIR ?= $(HOME)/.local/share/hyprland/plugins
 
-.PHONY: all clean install
+.PHONY: all clean install check
 
 all: $(TARGET)
 
@@ -46,3 +46,9 @@ install: $(TARGET)
 
 clean:
 	rm -rf $(OBJDIR) $(TARGET)
+
+# Bug check: rebuild from scratch treating every compiler warning as an error.
+# CI runs this before shipping a release build.
+check:
+	$(MAKE) clean
+	$(MAKE) CXXFLAGS="$(CXXFLAGS) -Werror"

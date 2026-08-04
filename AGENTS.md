@@ -1,8 +1,10 @@
 # AGENTS.md
 
 Hyprland plugin (shared library `libfocusZ.so`) implementing a Z-axis depth-focus
-layout. C++23. **No tests, CI, or linter exist** — the only verification is
-build + load in a live Hyprland session.
+layout. C++23. **No tests or linter exist** — the only verification is build + load
+in a live Hyprland session. GitHub Actions CI builds against the `hyprland` Arch
+package in a container; `make check` rebuilds with `-Werror` to catch warnings
+(CI gate), and `make install` is the only local install path.
 
 ## Build & install
 

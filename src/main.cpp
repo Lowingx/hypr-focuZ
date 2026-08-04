@@ -177,7 +177,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
 
     return {"focusZ",
             "Z-Axis Depth Focus Layout — 3D stacking visual effect based on focus depth",
-            "focusZ",
+            "Lowingx",
             "1.0.0"};
 }
 

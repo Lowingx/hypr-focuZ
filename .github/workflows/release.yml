@@ -1,12 +1,14 @@
-name: build
+name: release
 
 on:
   push:
-    branches: [main]
-  pull_request:
+    tags: ['v*']
+
+permissions:
+  contents: write
 
 jobs:
-  build:
+  release:
     runs-on: ubuntu-latest
     container:
       image: archlinux:latest
@@ -22,21 +24,25 @@ jobs:
             hyprland \
             pkg-config
 
-      - name: Build
+      - name: Bug check (build with -Werror)
+        run: make check
+
+      - name: Build release artifact
         run: |
           echo "Building against Hyprland $(pkg-config --modversion hyprland)"
           make -j"$(nproc)"
-
-      - name: Bug check (rebuild with -Werror)
-        run: make check
 
       - name: Verify artifact
         run: |
           file libfocusZ.so
           test -s libfocusZ.so
+          sha256sum libfocusZ.so > SHA256SUMS
+          cat SHA256SUMS
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: libfocusZ
-          path: libfocusZ.so
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            libfocusZ.so SHA256SUMS \
+            --generate-notes
