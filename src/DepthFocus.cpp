@@ -64,13 +64,21 @@ SLayerTransform CDepthFocusManager::getTransformForLayer(int depth) const {
         t.scale   = g_fLayer2Scale  ? g_fLayer2Scale->value()  : 0.70f;
         t.opacity = g_fLayer2Opacity ? g_fLayer2Opacity->value() : 0.4f;
     } else {
-        // Deeper layers: extrapolate from layer 2 with a steeper per-layer
-        // falloff so the Z-perspective reads strongly.
+        // Deeper layers: interpolate from layer 2 down to the floor across the
+        // remaining configured depth levels. A fixed per-layer step collapsed to
+        // the floor after only ~2 extra layers, so every window past depth 3
+        // looked identical — the "blur/dim only happens once" bug. Spreading the
+        // falloff over max_layers keeps each deeper card visibly dimmer/smaller.
         const float baseScale   = g_fLayer2Scale  ? g_fLayer2Scale->value()  : 0.70f;
         const float baseOpacity = g_fLayer2Opacity ? g_fLayer2Opacity->value() : 0.4f;
+        const float floorScale  = 0.22f;
+        const float floorOpacity = 0.05f;
+        const int   maxLayers   = std::max<int>(1, g_iMaxLayers ? g_iMaxLayers->value() : 8);
         const int   extraDepth  = depth - 2;
-        t.scale   = std::max(0.22f, baseScale - 0.13f * extraDepth);
-        t.opacity = std::max(0.05f, baseOpacity - 0.18f * extraDepth);
+        const int   totalSteps  = std::max(1, maxLayers - 2); // levels past layer 2
+        const float frac        = std::min(1.0f, (float)extraDepth / (float)totalSteps);
+        t.scale   = baseScale + (floorScale - baseScale) * frac;
+        t.opacity = baseOpacity + (floorOpacity - baseOpacity) * frac;
     }
     return t;
 }
@@ -111,6 +119,7 @@ void CDepthFocusManager::rebuildStack() {
         m_applied.clear();
         m_depthCache.clear();
         m_monitor = {};
+        m_workspace = {};
         return;
     }
 
@@ -122,6 +131,8 @@ void CDepthFocusManager::rebuildStack() {
     if (valid(focused))
         m_monitor = focused->m_monitor;
     const auto anchor = m_monitor.lock();
+    if (anchor)
+        m_workspace = anchor->m_activeWorkspace;
 
     std::vector<PHLWINDOW> next;
     if (valid(focused))
@@ -169,8 +180,14 @@ void CDepthFocusManager::onFocusChange(PHLWINDOW pWindow, Desktop::eFocusReason 
 
     DebugLog::log("onFocusChange win=" + winStr(pWindow));
 
-    // Cross-monitor (or first) focus: re-anchor the whole stack.
-    if (!m_monitor.lock() || !(pWindow->m_monitor.lock() == m_monitor.lock())) {
+    // Re-anchor whenever the focused window is on a different monitor OR a
+    // different workspace of the same monitor. Previously only a monitor change
+    // rebuilt the stack, so focusing a window on another workspace promoted it
+    // onto the old stack — the deck mixed windows from two workspaces and the
+    // dim/blur only updated when clicking the window you wanted to see change.
+    const auto anchor = m_monitor.lock();
+    if (!anchor || !(pWindow->m_monitor.lock() == anchor) ||
+        (pWindow->m_workspace && pWindow->m_workspace != m_workspace.lock())) {
         rebuildStack();
         DebugLog::log("onFocusChange exit (rebuild)");
         return;
@@ -193,6 +210,14 @@ void CDepthFocusManager::onWindowOpen(PHLWINDOW pWindow) {
     // Only windows on the anchor monitor join this stack.
     if (m_monitor.lock() && !(pWindow->m_monitor.lock() == m_monitor.lock()))
         return;
+
+    // A window opened on another workspace of the same monitor: re-anchor the
+    // deck to that workspace (matches onFocusChange, prevents mixing).
+    if (pWindow->m_workspace && pWindow->m_workspace != m_workspace.lock()) {
+        rebuildStack();
+        DebugLog::log("onWindowOpen exit (rebuild)");
+        return;
+    }
 
     // ... and only on the anchor workspace (matches rebuildStack's filter).
     const auto anchor = m_monitor.lock();
@@ -227,8 +252,10 @@ void CDepthFocusManager::onWindowClose(PHLWINDOW pWindow) {
     // The window is gone; drop tracking so restore never touches a dead window.
     m_applied.erase((uintptr_t)pWindow.get());
 
-    if (m_zStack.empty())
-        m_monitor = {};
+    if (m_zStack.empty()) {
+        m_monitor    = {};
+        m_workspace  = {};
+    }
 
     applyAllDepthTransforms();
     DebugLog::log("onWindowClose exit");
@@ -270,7 +297,8 @@ void CDepthFocusManager::applyAllDepthTransforms() {
             m_zStack.clear();
             m_applied.clear();
             m_depthCache.clear();
-            m_monitor = {};
+            m_monitor    = {};
+            m_workspace  = {};
             DebugLog::log("applyAllDepthTransforms stacking off — stack cleared");
             return;
         }
@@ -382,6 +410,15 @@ void CDepthFocusManager::applyDepthToWindow(PHLWINDOW pWindow, int depth) {
     g_pHyprRenderer->damageWindow(pWindow, true);
 }
 
+// Wallpaper daemons expose their surface on the BACKGROUND layer (level 0), but
+// that layer can also hold small helper surfaces (e.g. quickshell's pill-inhibit,
+// a 1x1 layer) which come first and must not be dimmed. Match the wallpaper by
+// known namespace, falling back to the first surface that covers the monitor.
+static bool isWallpaperNamespace(const std::string& ns) {
+    return ns == "awww-daemon" || ns == "ryoku-livewall" || ns == "mpvpaper" || ns == "phonto" ||
+           ns == "swww" || ns == "hyprpaper" || ns == "wpaperd" || ns == "wallpaper";
+}
+
 void CDepthFocusManager::pullWallpaper(bool pull) {
     auto anchor = m_monitor.lock();
 
@@ -392,17 +429,25 @@ void CDepthFocusManager::pullWallpaper(bool pull) {
         return;
     }
 
-    // Locate the wallpaper: the first mapped surface on the BACKGROUND layer.
-    // The namespace varies per wallpaper daemon (swww/hyprpaper/mpvpaper), so we
-    // match by layer instead of name.
+    // Locate the wallpaper: prefer a known wallpaper namespace on the BACKGROUND
+    // layer; otherwise the first surface whose geometry covers the monitor (so a
+    // 1x1 helper layer is never mistaken for the wallpaper).
     if (!m_wallpaper.lock()) {
+        PHLLS fullscreen;
         for (const auto& lsl : anchor->m_layerSurfaceLayers[0]) {
             auto ls = lsl.lock();
-            if (valid(ls) && ls->visible()) {
+            if (!valid(ls) || !ls->visible())
+                continue;
+            if (isWallpaperNamespace(ls->m_namespace)) {
                 m_wallpaper = ls;
                 break;
             }
+            const auto monSize = anchor->logicalBox().size();
+            if (ls->m_geometry.size().x >= monSize.x * 0.99 && ls->m_geometry.size().y >= monSize.y * 0.99)
+                fullscreen = ls;
         }
+        if (!m_wallpaper.lock())
+            m_wallpaper = fullscreen;
     }
 
     auto ls = m_wallpaper.lock();

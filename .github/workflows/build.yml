@@ -1,0 +1,39 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            base-devel \
+            git \
+            hyprland \
+            pkg-config
+
+      - name: Build
+        run: |
+          echo "Building against Hyprland $(pkg-config --modversion hyprland)"
+          make -j"$(nproc)"
+
+      - name: Verify artifact
+        run: |
+          file libfocusZ.so
+          test -s libfocusZ.so
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libfocusZ
+          path: libfocusZ.so

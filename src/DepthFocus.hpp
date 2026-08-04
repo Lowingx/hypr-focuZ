@@ -60,6 +60,11 @@ class CDepthFocusManager {
     // The stack is anchored to one monitor so windows on other monitors are untouched.
     PHLMONITORREF m_monitor;
 
+    // The workspace the stack was built for. Focus/opens on a different
+    // workspace of the same monitor must rebuild (re-filter) the deck instead of
+    // promoting onto stale windows from the previous workspace.
+    PHLWORKSPACEREF m_workspace;
+
     // win addr -> applied state (depth, decoration, original geometry).
     std::unordered_map<uintptr_t, SAppliedState> m_applied;
 
