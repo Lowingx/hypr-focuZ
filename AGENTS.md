@@ -37,8 +37,8 @@ top troubleshooting issue in README.
 - All options live under `plugin:focusZ:` and are registered by name in
   src/main.cpp via `makeConfigValue` (`enabled`, `stacking`, `max_layers`,
   `layer_1_scale`, `layer_1_opacity`, `layer_1_blur`, `layer_2_*`,
-  `animation_speed`, `center_scale`). These names must stay in sync between
-  src/main.cpp and hyprland.conf.
+  `animation_speed`, `wallpaper_dim`, `center_scale`). These names must stay in
+  sync between src/main.cpp and hyprland.conf.
 - No way to test headless. Manual loop: `hyprctl plugin list` to confirm load,
   `hyprctl getoption plugin:focusZ:enabled`, then alt-tab with ≥2 windows on a
   workspace. After disabling, `hyprctl reload` recalcs window positions.
@@ -77,7 +77,7 @@ top troubleshooting issue in README.
 - `m_applied` (win addr -> `SAppliedState`) is the single source of truth for
   each window's depth and decoration presence. No geometry or render data is
   mutated, so nothing is captured or restored. `restoreWindow` is what
-  unwinds windows evicted past `max_layers`, focused, disabled, or closed —
+  unwinds windows evicted past the hard cap, focused, disabled, or closed —
   including removing the `CDepthShadowDecoration` (which is otherwise never
   removed, and used to keep drawing on windows that returned to layer 0).
 - `layer_1_scale` / `layer_2_scale` are consumed by `CScaleTransformer`
@@ -111,12 +111,11 @@ top troubleshooting issue in README.
   front window's box (resizable/draggable): `layoutStack` reads its live
   geometry via `w->m_target->position()` (→ `m_box.logicalBox`) and anchors
   every back card to that box, so the deck always tracks the focused card. Each
-  deeper card is shrunk to `frontBox * getTransformForLayer(i).scale` and parks
-  it in one of the front card's **four corners**, pushed diagonally outward by
-  `PEEK_MIN`..`PEEK_MAX` (20–40 px, per-window hashed so positions never jitter
-  across focus changes) — the deck fans out to the screen's extremities, one
-  back card per corner, so every card is clearly visible behind the opaque front
-  one. Corner is assigned by layer index (`(i - 1) & 3`). `MARGIN` is larger
+  deeper card is shrunk to `frontBox * getTransformForLayer(i).scale` and
+  scattered at a random angle/radius (both hashed from the window address, stable
+  across focus changes) around the front card, pushed `PEEK_MIN`..`PEEK_MAX`
+  (20–40 px) past its footprint so every card protrudes and stays visible behind
+  the opaque front one. The safety net keeps every card on-screen. `MARGIN` is larger
   than `PEEK_MAX` so cards stay on-screen without clamping. `applyDepthToWindow`
   therefore drops the transformer (`setWindowScale(pWindow, 1.0f)`) while
   stacking is on — keeping it would double-scale (box × render). The
@@ -131,9 +130,9 @@ top troubleshooting issue in README.
   an opaque focused card covers any card fully inside its footprint, which is
   why the earlier "scatter within the pile area" builds looked unchanged and
   showed no blur.
-- `max_layers` is 1–16, default 8. `getTransformForLayer` extrapolates beyond
-  layer 2 (scale −0.13/layer, opacity −0.18/layer, floored at 0.22/0.05), so adding
-  more stack slots needs no new config keys.
+- `max_layers` is 1–16, default 8. This controls the number of *distinct* depth
+  levels; windows beyond the limit still join the deck at the deepest level
+  (floor: 0.22 scale / 0.05 opacity) instead of snapping back to 100%.
 - `layer_1_blur` / `layer_2_blur` config values are registered for config
   compatibility but **inert**: the plugin API only has an on/off `noblur` window
   rule, no per-window blur radius, so `getTransformForLayer` intentionally does
@@ -148,8 +147,10 @@ top troubleshooting issue in README.
   from `layoutStack`): the first mapped surface in
   `monitor->m_layerSurfaceLayers[0]` (BACKGROUND layer, matched by layer, not
   namespace — swww/hyprpaper/mpvpaper all differ) gets its `LS_ALPHA_FADE`
-  channel set to `WALLPAPER_DIM` (0.65) while the stack is live, restored to 1.0
-  when the stack is cleared/disabled. Geometry is deliberately NOT touched:
+  channel set to `plugin:focusZ:wallpaper_dim` (default 0.5 — darker than the
+  earlier hardcoded 0.65 so the wallpaper reads as a canvas behind the deck)
+  while the stack is live, restored to 1.0 when the stack is cleared/disabled.
+  Geometry is deliberately NOT touched:
   `arrangeLayerArray` (Renderer.cpp:2556) re-derives `m_geometry` from the
   client's `desiredSize` on every arrange and `configure()`s the client — any
   scale/box we set would be overwritten (and could resize-loop). Alpha is the

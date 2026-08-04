@@ -280,7 +280,7 @@ void CDepthFocusManager::applyAllDepthTransforms() {
 
     refreshDepthCache();
 
-    // Restore windows that left the stack (evicted by max_layers, moved monitors, closed).
+    // Restore windows that left the stack (moved monitors, closed).
     for (auto it = m_applied.begin(); it != m_applied.end();) {
         auto w = it->second.window.lock();
         if (valid(w) && m_depthCache.contains(it->first)) {
@@ -295,7 +295,7 @@ void CDepthFocusManager::applyAllDepthTransforms() {
     // Apply only what changed; unchanged windows keep their goals and are not re-damaged.
     // Depth is clamped to max_layers so windows beyond the configured levels all
     // share the deepest treatment (their transforms floor at 0.22/0.05 anyway).
-    const int maxLayers = std::max(1, g_iMaxLayers ? g_iMaxLayers->value() : 8);
+    const int maxLayers = std::max<int>(1, g_iMaxLayers ? g_iMaxLayers->value() : 8);
     for (size_t i = 0; i < m_zStack.size(); i++) {
         auto w = m_zStack[i].lock();
         if (!valid(w))
@@ -417,8 +417,10 @@ void CDepthFocusManager::pullWallpaper(bool pull) {
 
     // Only the fade alpha channel exists for layer surfaces; it's how the whole
     // layer is dimmed, which reads as the wallpaper receding along the Z axis.
-    constexpr float WALLPAPER_DIM = 0.65f; // 1.0 = full, lower = pushed back
-    *ls->alpha().get(Desktop::View::LS_ALPHA_FADE) = pull ? WALLPAPER_DIM : 1.0f;
+    // The dim is configurable (plugin:focusZ:wallpaper_dim) so the wallpaper can
+    // act as a darker "canvas" for the deck; geometry is NOT touched (see above).
+    const float dim = g_fWallpaperDim ? g_fWallpaperDim->value() : 0.5f; // 1.0 = full, lower = pushed back
+    *ls->alpha().get(Desktop::View::LS_ALPHA_FADE) = pull ? dim : 1.0f;
     m_wallpaperDimmed = pull;
 
     DebugLog::log(std::string("pullWallpaper ") + (pull ? "pull" : "restore"));
@@ -596,7 +598,7 @@ void CDepthFocusManager::restoreWindow(PHLWINDOW pWindow) {
 }
 
 void CDepthFocusManager::refreshDepthCache() {
-    const int maxLayers = std::max(1, g_iMaxLayers ? g_iMaxLayers->value() : 8);
+    const int maxLayers = std::max<int>(1, g_iMaxLayers ? g_iMaxLayers->value() : 8);
     m_depthCache.clear();
     for (size_t i = 0; i < m_zStack.size(); i++) {
         auto w = m_zStack[i].lock();

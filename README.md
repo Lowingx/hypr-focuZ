@@ -10,11 +10,12 @@ When `stacking` is enabled the stack becomes a pile of floating cards on the
 monitor's active workspace. The focused card is resized to 70% of the workarea
 (minus a small margin) and centered; every deeper card is **smaller** — the box
 is scaled by the layer's scale factor, so the scale is real geometry, not just a
-render transform — and is **parked in one of the focused card's four corners**,
-pushed diagonally outward toward the screen's extremities (20–40 px, hashed from
-the window's address so positions never jitter when you alt-tab). One back card
-per corner, so every card is clearly visible behind the front one, and the pile
-reads as receding scale, translucency, and blur.
+render transform — and is **scattered at a random angle/radius** around the
+focused card, pushed 20–40 px past its footprint (hashed from the window's
+address so positions never jitter when you alt-tab). The pile reads as receding
+scale, translucency, and blur. All workspace windows join the deck; those beyond
+`max_layers` floor at 0.22 scale / 0.05 opacity as dim ghosts, so nothing ever
+snaps back to 100% behind the deck.
 
 | Layer | Scale | Opacity | Shadow |
 |-------|-------|---------|--------|
@@ -31,10 +32,12 @@ but inert. The Ryoku module (`~/.config/hypr/modules/focusz.lua`) sets a strong,
 clean global blur (size 30, passes 8, noise 0.0) so the backdrop reads as deep
 and sharp rather than grainy; the focused window is opaque and stays crisp.
 
-While the deck is live the **wallpaper is pulled back** into the scene: its layer
-surface's fade alpha is dimmed to 0.65 so it recedes along the Z axis behind the
-cards (geometry is untouched — the compositor owns layer arrangement). When the
-stack is cleared or stacking is disabled the wallpaper is restored to full alpha.
+While the deck is live the **wallpaper is pulled back** into the scene as the
+deck's canvas: its layer surface's fade alpha is dimmed to `wallpaper_dim`
+(default 0.5, darker than the previous hardcoded 0.65) so it recedes along the Z
+axis behind the cards (geometry is untouched — the compositor owns layer
+arrangement). When the stack is cleared or stacking is disabled the wallpaper is
+restored to full alpha.
 
 Switching focus (`focusZ:cycle` or clicking a card) promotes the window to Layer 0,
 re-stacks the pile, and the cards animate to their new positions.
@@ -86,7 +89,8 @@ plugin {
         # and apply only scale/opacity/shadow (false)
         stacking = true
 
-        # How many windows participate in the depth stack (1-16)
+        # Number of distinct depth levels (1-16); all workspace windows join the
+        # deck, deeper ones floor at 0.22 scale / 0.05 opacity
         max_layers = 8
 
         # Scale factors per background layer
@@ -106,6 +110,10 @@ plugin {
         # Animation speed for depth transitions (higher = snappier)
         # NOTE: reserved — positions animate with Hyprland's native anim system.
         animation_speed = 8.0     # 1.0 - 20.0
+
+        # Wallpaper fade while the deck is live — the wallpaper is the deck's
+        # canvas, dimmed so the cards read against it (0.1 = very dark, 1.0 = unchanged)
+        wallpaper_dim = 0.5       # 0.1 - 1.0
 
         # Scale windows toward monitor center (true) or top-left (false)
         # NOTE: reserved — not currently wired to anything.

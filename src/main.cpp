@@ -81,6 +81,9 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     g_fAnimationSpeed = makeConfigValue<CFloatValue>("plugin:focusZ:animation_speed",
                           "Animation speed for depth transitions (1.0–20.0)", 8.0f,
                           Config::Values::SFloatValueOptions{.min = 1.0f, .max = 20.0f});
+    g_fWallpaperDim   = makeConfigValue<CFloatValue>("plugin:focusZ:wallpaper_dim",
+                          "Fade alpha of the wallpaper while the deck is live (0.1 = very dark canvas, 1.0 = unchanged)", 0.5f,
+                          Config::Values::SFloatValueOptions{.min = 0.1f, .max = 1.0f});
     g_bCenterScale   = makeConfigValue<CBoolValue>("plugin:focusZ:center_scale",
                           "Scale windows toward the center of the monitor", true, {});
     g_bDebug         = makeConfigValue<CBoolValue>("plugin:focusZ:debug",
@@ -98,6 +101,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     ok &= HyprlandAPI::addConfigValueV2(PHANDLE, g_bLayer1Blur);
     ok &= HyprlandAPI::addConfigValueV2(PHANDLE, g_bLayer2Blur);
     ok &= HyprlandAPI::addConfigValueV2(PHANDLE, g_fAnimationSpeed);
+    ok &= HyprlandAPI::addConfigValueV2(PHANDLE, g_fWallpaperDim);
     ok &= HyprlandAPI::addConfigValueV2(PHANDLE, g_bCenterScale);
     ok &= HyprlandAPI::addConfigValueV2(PHANDLE, g_bDebug);
 

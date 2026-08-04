@@ -39,13 +39,13 @@ plugin API to grow first gets `status:blocked`.
 | #2 | Restore windows on evict / disable / close | Done | P0 | core | M0.3 |
 | #3 | Keep the per-frame render hook O(1) | Done | P0 | core | M0.4 |
 | #4 | Record architecture decisions as ADRs | In Progress | P0 | docs | M1.1 |
-| #5 | Headless tests: impossible, document the manual loop | Todo | P1 | ci/docs | M2.1 |
+| #5 | Headless tests: impossible, document the manual loop | In Progress | P1 | ci/docs | M2.1 |
 | #6 | Rebuild flow on Hyprland upgrades (ABI lock) | Todo | P1 | ops | M3.1 |
-| #7 | Per-layer blur radius (API limitation) | Blocked | P2 | feature | M4.1 |
+| #7 | Per-layer blur radius (API limitation) | Todo | P2 | feature | M4.1 |
 | #8 | Add CI build verification | Todo | P1 | ci | M2.2 |
-| #9 | Blur behind background cards is not visible | Todo | P1 | feature | M4.1 |
-| #10 | Pull the wallpaper back into the depth scene | Todo | P1 | feature | M4.3 |
-| #11 | Strengthen the Z-axis perspective (scale/opacity falloff) | Todo | P1 | feature | M4.3 |
+| #9 | Blur behind background cards is not visible | Done | P1 | feature | M4.1 |
+| #10 | Pull the wallpaper back into the depth scene | Done | P1 | feature | M4.3 |
+| #11 | Strengthen the Z-axis perspective (scale/opacity falloff) | Done | P1 | feature | M4.3 |
 
 ## Operations
 
@@ -89,13 +89,14 @@ documents in sync when work is reprioritized.
   the global `blur:size` setting; only an on/off `noblur` rule exists. The
   `layer_*_blur` config toggles are registered but inert.
 - **Blur not visible (#9)** — root cause was back cards placed fully inside the
-  opaque focused card's footprint. Fixed by corner protrusion; pending live
-  verification. Distinct from #7: #7 is about per-layer blur radius, #9 was the
-  "nothing blurs at all" symptom.
+  opaque focused card's footprint. Fixed by random-angle protrusion past the
+  front card; live-verified.
 - **Wallpaper pull (#10)** — implemented by dimming the wallpaper layer's fade
-  alpha (0.65); geometry is deliberately untouched because `arrangeLayerArray`
-  owns layer arrangement and reconfigures the client. Pending live verification.
-- **Perspective (#11)** — steeper scale/opacity falloff shipped; pending live
-  verification and possible fine-tuning of the deepest layers.
+  alpha via `LS_ALPHA_FADE`; geometry deliberately untouched. The dim is now
+  configurable (`plugin:focusZ:wallpaper_dim`, default 0.5) so the wallpaper
+  acts as a darker canvas behind the deck. Live-verified.
+- **Perspective (#11)** — steeper scale/opacity falloff shipped (layer 1: 0.62,
+  layer 2: 0.42, extrapolated with −0.13/−0.18 per extra layer, floored at
+  0.22/0.05). Live-verified.
 - **Verification (#5)** is build + load in a live session; headless testing is
   impossible for a Hyprland plugin.
