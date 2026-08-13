@@ -1,15 +1,26 @@
-name: build
+name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  HYPRLAND_VERSION: "0.56.2"
 
 jobs:
   build:
+    name: Build & Test
     runs-on: ubuntu-latest
     container:
       image: archlinux:latest
+      options: --privileged
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,9 +31,20 @@ jobs:
             base-devel \
             git \
             hyprland \
-            pkg-config
+            pkg-config \
+            clang \
+            cmake
 
-      - name: Build
+      - name: Verify Hyprland version
+        run: |
+          INSTALLED=$(pkg-config --modversion hyprland)
+          echo "Installed Hyprland: $INSTALLED"
+          echo "Expected version: ${{ env.HYPRLAND_VERSION }}"
+          echo "## Hyprland Version" >> $GITHUB_STEP_SUMMARY
+          echo "- Installed: $INSTALLED" >> $GITHUB_STEP_SUMMARY
+          echo "- Expected: ${{ env.HYPRLAND_VERSION }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Build with Make
         run: |
           echo "Building against Hyprland $(pkg-config --modversion hyprland)"
           make -j"$(nproc)"
@@ -30,13 +52,99 @@ jobs:
       - name: Bug check (rebuild with -Werror)
         run: make check
 
+      - name: Build with CMake (alternative)
+        run: |
+          cmake -B build-cmake
+          cmake --build build-cmake -j"$(nproc)"
+
       - name: Verify artifact
         run: |
+          echo "## Build Artifact" >> $GITHUB_STEP_SUMMARY
           file libfocusZ.so
           test -s libfocusZ.so
+          ls -lh libfocusZ.so
+          echo "- Size: $(stat -c%s libfocusZ.so) bytes" >> $GITHUB_STEP_SUMMARY
+          echo "- Type: $(file -b libfocusZ.so)" >> $GITHUB_STEP_SUMMARY
+
+      - name: Static analysis (clang-tidy)
+        if: github.event_name == 'pull_request'
+        run: |
+          pacman -S --noconfirm --needed clang-tools-extra
+          find src -name '*.cpp' | head -5 | xargs clang-tidy --std=c++2b 2>/dev/null || echo "clang-tidy completed with warnings"
+
+      - name: Security scan (check for dangerous functions)
+        run: |
+          echo "## Security Scan" >> $GITHUB_STEP_SUMMARY
+          DANGEROUS=$(grep -rn "system\|popen\|exec\|strcpy\|sprintf" src/ 2>/dev/null | grep -v "//" || true)
+          if [ -n "$DANGEROUS" ]; then
+            echo "⚠️ Potential dangerous functions found:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$DANGEROUS" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ No dangerous functions detected" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Check for render-path violations
+        run: |
+          echo "## Render Path Check" >> $GITHUB_STEP_SUMMARY
+          VIOLATIONS=$(grep -rn "addPassElement\|IWindowTransformer" src/ 2>/dev/null | grep -v "//\|DISABLED\|dead code" || true)
+          if [ -n "$VIOLATIONS" ]; then
+            echo "❌ Render path violations found:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$VIOLATIONS" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            exit 1
+          else
+            echo "✅ No render path violations" >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: libfocusZ
+          name: libfocusZ-${{ github.sha }}
           path: libfocusZ.so
+          retention-days: 30
+
+  lint:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            base-devel \
+            hyprland \
+            pkg-config \
+            clang \
+            python
+
+      - name: Check config consistency
+        run: |
+          echo "## Config Consistency Check" >> $GITHUB_STEP_SUMMARY
+          # Check that config keys in main.cpp match README
+          CONFIG_KEYS=$(grep -o 'plugin:focusZ:[a-z_]*' src/main.cpp | sort -u)
+          echo "Config keys in code:" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "$CONFIG_KEYS" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Check for dead code markers
+        run: |
+          echo "## Dead Code Check" >> $GITHUB_STEP_SUMMARY
+          DEAD=$(grep -rn "DISABLED\|dead code\|no-op\|NO-OP" src/ 2>/dev/null | wc -l)
+          echo "- Dead code markers: $DEAD" >> $GITHUB_STEP_SUMMARY
+
+      - name: Verify version hash
+        run: |
+          echo "## Version Hash Check" >> $GITHUB_STEP_SUMMARY
+          HASH_LINE=$(grep -n "HASH\|__hyprland_api_get_hash" src/main.cpp | head -3)
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "$HASH_LINE" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

@@ -1,4 +1,4 @@
-name: release
+name: Release
 
 on:
   push:
@@ -7,11 +7,67 @@ on:
 permissions:
   contents: write
 
+env:
+  HYPRLAND_VERSION: "0.56.2"
+
 jobs:
-  release:
+  pre-release:
+    name: Pre-release Validation
     runs-on: ubuntu-latest
     container:
       image: archlinux:latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      changelog: ${{ steps.changelog.outputs.changelog }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "## Version" >> $GITHUB_STEP_SUMMARY
+          echo "- Tag: $GITHUB_REF_NAME" >> $GITHUB_STEP_SUMMARY
+          echo "- Version: $VERSION" >> $GITHUB_STEP_SUMMARY
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get commits since last tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            CHANGES=$(git log --pretty=format:"- %s (%h)" "$PREV_TAG"..HEAD)
+          else
+            CHANGES=$(git log --pretty=format:"- %s (%h)" HEAD)
+          fi
+          
+          # Escape for output
+          CHANGES_ESCAPED=$(echo "$CHANGES" | sed 's/%/%25/g' | sed 's/\n/%0A/g')
+          echo "changelog=$CHANGES_ESCAPED" >> $GITHUB_OUTPUT
+          
+          echo "## Changelog" >> $GITHUB_STEP_SUMMARY
+          echo "$CHANGES" >> $GITHUB_STEP_SUMMARY
+
+      - name: Validate tag format
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "❌ Invalid tag format. Expected: vX.Y.Z"
+            exit 1
+          fi
+          echo "✅ Tag format valid: $GITHUB_REF_NAME"
+
+  build:
+    name: Build Release Artifact
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    needs: pre-release
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,25 +80,103 @@ jobs:
             hyprland \
             pkg-config
 
+      - name: Verify Hyprland version
+        run: |
+          INSTALLED=$(pkg-config --modversion hyprland)
+          echo "Building against Hyprland $INSTALLED"
+          if [ "$INSTALLED" != "${{ env.HYPRLAND_VERSION }}" ]; then
+            echo "⚠️ Warning: Hyprland version mismatch"
+            echo "Expected: ${{ env.HYPRLAND_VERSION }}"
+            echo "Got: $INSTALLED"
+          fi
+
       - name: Bug check (build with -Werror)
         run: make check
 
       - name: Build release artifact
         run: |
-          echo "Building against Hyprland $(pkg-config --modversion hyprland)"
           make -j"$(nproc)"
+          echo "## Build Artifact" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          file libfocusZ.so >> $GITHUB_STEP_SUMMARY
+          ls -lh libfocusZ.so >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Verify artifact
         run: |
           file libfocusZ.so
           test -s libfocusZ.so
           sha256sum libfocusZ.so > SHA256SUMS
-          cat SHA256SUMS
+          echo "## Checksums" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat SHA256SUMS >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libfocusZ-${{ needs.pre-release.outputs.version }}
+          path: |
+            libfocusZ.so
+            SHA256SUMS
+
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [pre-release, build]
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: libfocusZ-${{ needs.pre-release.outputs.version }}
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Decode changelog
+          CHANGELOG="${{ needs.pre-release.outputs.changelog }}"
+          CHANGELOG_DECODED=$(echo "$CHANGELOG" | sed 's/%0A/\n/g' | sed 's/%25/%/g')
+          
+          # Create release with changelog
           gh release create "$GITHUB_REF_NAME" \
             libfocusZ.so SHA256SUMS \
-            --generate-notes
+            --title "focusZ $GITHUB_REF_NAME" \
+            --notes "## Changes
+
+${CHANGELOG_DECODED}
+
+## Installation
+
+Download \`libfocusZ.so\` and place it in your Hyprland plugin directory.
+
+\`\`\`bash
+# Copy to plugin directory
+cp libfocusZ.so ~/.local/share/hyprland/plugins/
+
+# Add to hyprland.conf
+plugin = ~/.local/share/hyprland/plugins/libfocusZ.so
+\`\`\`
+
+## Hyprland Compatibility
+
+Built against Hyprland ${{ env.HYPRLAND_VERSION }}. ABI-locked to this version.
+
+## Checksums
+
+\`\`\`
+$(cat SHA256SUMS)
+\`\`\`"
+
+      - name: Verify release
+        run: |
+          echo "## Release Verification" >> $GITHUB_STEP_SUMMARY
+          gh release view "$GITHUB_REF_NAME" --json tagName,assets >> $GITHUB_STEP_SUMMARY

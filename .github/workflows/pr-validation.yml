@@ -1,0 +1,106 @@
+name: PR Validation
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  HYPRLAND_VERSION: "0.56.2"
+
+jobs:
+  validate:
+    name: Validate PR
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            base-devel \
+            git \
+            hyprland \
+            pkg-config
+
+      - name: PR Info
+        run: |
+          echo "## PR Information" >> $GITHUB_STEP_SUMMARY
+          echo "- PR: #${{ github.event.pull_request.number }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Title: ${{ github.event.pull_request.title }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Author: ${{ github.event.pull_request.user.login }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Branch: ${{ github.head_ref }} → ${{ github.base_ref }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Build
+        run: |
+          echo "Building against Hyprland $(pkg-config --modversion hyprland)"
+          make -j"$(nproc)"
+
+      - name: Bug check (rebuild with -Werror)
+        run: make check
+
+      - name: Check for config changes
+        run: |
+          echo "## Config Changes" >> $GITHUB_STEP_SUMMARY
+          if git diff --name-only HEAD~1 | grep -q "src/main.cpp"; then
+            echo "⚠️ Config registration changed in src/main.cpp" >> $GITHUB_STEP_SUMMARY
+            echo "### Changed config keys:" >> $GITHUB_STEP_SUMMARY
+            git diff HEAD~1 src/main.cpp | grep "^+.*addConfigValue" >> $GITHUB_STEP_SUMMARY || true
+          else
+            echo "✅ No config changes" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Check for render path violations
+        run: |
+          echo "## Render Path Check" >> $GITHUB_STEP_SUMMARY
+          # Check added lines for render path violations
+          VIOLATIONS=$(git diff HEAD~1 src/ 2>/dev/null | grep "^+" | grep -E "addPassElement|IWindowTransformer" | grep -v "//\|DISABLED" || true)
+          if [ -n "$VIOLATIONS" ]; then
+            echo "❌ Potential render path violations in this PR:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$VIOLATIONS" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ Review carefully: render path code caused SEGV on v0.56.2" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ No render path violations detected" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Check documentation updates
+        run: |
+          echo "## Documentation Check" >> $GITHUB_STEP_SUMMARY
+          CHANGED_FILES=$(git diff --name-only HEAD~1 2>/dev/null || echo "")
+          
+          if echo "$CHANGED_FILES" | grep -q "src/main.cpp"; then
+            if ! echo "$CHANGED_FILES" | grep -q "README.md\|docs/"; then
+              echo "⚠️ Config changed but docs not updated" >> $GITHUB_STEP_SUMMARY
+              echo "Consider updating README.md or docs/ if config keys changed" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "✅ Config change accompanied by doc updates" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "✅ No config changes requiring doc updates" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Verify artifact
+        run: |
+          echo "## Artifact Verification" >> $GITHUB_STEP_SUMMARY
+          file libfocusZ.so
+          test -s libfocusZ.so
+          echo "- Size: $(stat -c%s libfocusZ.so) bytes" >> $GITHUB_STEP_SUMMARY
+          echo "- Type: $(file -b libfocusZ.so)" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libfocusZ-pr-${{ github.event.pull_request.number }}
+          path: libfocusZ.so
+          retention-days: 7
