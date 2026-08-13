@@ -6,6 +6,8 @@ A Hyprland plugin that gives windows real **Z-axis depth**: the focused window s
 on top at full size, and background windows are **stacked behind it as overlapping
 cards** that recede with reduced scale, opacity, and a depth-varying shadow.
 
+**Works on any Hyprland 0.56.2 setup** — not tied to any specific distro or config.
+
 ## Effect
 
 When `stacking` is enabled the stack becomes a pile of floating cards on the
@@ -29,10 +31,8 @@ snaps back to 100% behind the deck.
 Blur is **free**: with global `decoration:blur:enabled` on (default), the
 translucent background cards blur whatever is behind them — wallpaper, layers,
 and each other. The plugin API has no per-window blur radius (only an on/off
-`noblur` window rule), so blur follows the global `blur:size`. The Ryoku module
-(`~/.config/hypr/modules/focusz.lua`) sets a strong, clean global blur (size 30,
-passes 8, noise 0.0) so the backdrop reads as deep and sharp rather than grainy;
-the focused window is opaque and stays crisp.
+`noblur` window rule), so blur follows the global `blur:size`. For best results,
+set a strong blur in your config (size 30, passes 8, noise 0.0).
 
 Switching focus (clicking a card) promotes the window to Layer 0, re-stacks the
 pile, and the cards animate to their new positions.
@@ -44,31 +44,35 @@ pile, and the cards animate to their new positions.
 - C++23 compiler (`g++` 14+ or `clang++` 18+)
 - Build deps: `pixman`, `libdrm`
 
-## Build
-
-```bash
-make            # produces libfocusZ.so
-# or with CMake:
-cmake -B build && cmake --build build
-```
-
 ## Install
 
+### Option 1: Build from source (any Hyprland)
+
 ```bash
+git clone https://github.com/Lowingx/hypr-focuZ.git
+cd hypr-focuZ
+make
 make install    # copies to ~/.local/share/hyprland/plugins/
 ```
 
-Then enable it in your Hyprland config:
+Then add to your `~/.config/hypr/hyprland.conf`:
 
 ```hyprlang
-plugin = /path/to/hypr-focuZ/libfocusZ.so
+plugin = ~/.local/share/hyprland/plugins/libfocusZ.so
 ```
 
-> On the Ryoku setup this repo is developed on, the plugin is loaded from
-> `~/.config/hypr/modules/focusz.lua` (`hl.plugin.load(...)`) rather than a
-> `plugin =` line. Note that the module loads `focusZ.so`, while `make install`
-> produces `libfocusZ.so` — keep the installed filename and the module path in
-> sync after installing.
+### Option 2: Ryoku (if using Ryoku distro)
+
+Ryoku loads plugins via modules. Add to your config:
+
+```hyprlang
+plugin = ~/.config/hypr/modules/focusz.so
+```
+
+Or use the Ryoku module system (`~/.config/hypr/modules/focusz.lua`).
+
+> **Note:** The module loads `focusZ.so`, while `make install` produces
+> `libfocusZ.so`. Keep the filename in sync after installing.
 
 ## Configuration
 
@@ -169,7 +173,7 @@ the depth stack — bind it to whatever you like:
 bind = ALT, Tab, focusZ:cycle
 ```
 
-> **Important:** Do not bind `ALT+Tab` or `SUPER+Tab` to focusZ on Ryoku —
+> **Note:** If using Ryoku, do not bind `ALT+Tab` or `SUPER+Tab` to focusZ —
 > those belong to Ryoku's overview system (`ryoku:overview`).
 
 ## How It Works
@@ -215,11 +219,6 @@ src/DepthFocus.hpp/cpp  CDepthFocusManager — the core depth engine
                     Maintains Z-stack, computes per-layer transforms,
                     floats + positions the stack
 
-src/ScaleTransformer.cpp/hpp
-                    CScaleTransformer — Render::IWindowTransformer
-                    Per-window scale via the official transformed-fb pipeline
-                    (DISABLED: SEGVs on v0.56.2, kept for reference)
-
 src/DepthShadow.hpp/cpp CDepthShadowDecoration — IHyprWindowDecoration subclass
                     Draws depth-aware shadows (range/offset vary by layer)
                     (DISABLED: no-op draw, not attached)
@@ -263,7 +262,7 @@ re-introducing render-path code safely (the v0.56.2 crashes came from
 
 ### Visual parity (M4)
 
-Match the visual target (`~/Downloads/deep_1-1_000.zip` — 140 PNGs):
+Match the visual target (140 PNGs showing the desired depth/blur/canvas look):
 
 - **Card borders** — rim around every deck card, clipped against the front
   card so back-card rims never cross the focused window. Config: `card_border`,
