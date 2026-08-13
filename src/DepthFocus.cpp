@@ -449,42 +449,7 @@ void CDepthFocusManager::applyDepthToWindow(PHLWINDOW pWindow, int depth) {
 // deck's cards render on top of this plane; TOP/OVERLAY layers (notifications,
 // OSD, launcher) are transient UI and deliberately stay in the foreground.
 
-// Region of `card` not covered by `occluder`, as up to 4 axis-aligned strips.
-static std::vector<CBox> exposedStrips(const CBox& card, const CBox& occluder);
-
 void CDepthFocusManager::drawCanvas() {
-}
-
-// Back cards overlap the focused (front) card — it is centered and they are
-// scattered at the workarea corners — so their rim/frost passes must be clipped
-// against the front card's live box: otherwise the rim line and the frosted
-// pane of a back card get painted across the front window at POST_WINDOWS.
-//
-// Region of `card` not covered by `occluder`, as up to 4 axis-aligned strips
-// (left/right/top/bottom). Returns {card} unchanged when there is no overlap.
-static std::vector<CBox> exposedStrips(const CBox& card, const CBox& occluder) {
-    std::vector<CBox> out;
-    if (occluder.w <= 0 || occluder.h <= 0)
-        out.push_back(card);
-    else {
-        const double L = std::max(card.x, occluder.x);
-        const double R = std::min(card.x + card.w, occluder.x + occluder.w);
-        const double T = std::max(card.y, occluder.y);
-        const double B = std::min(card.y + card.h, occluder.y + occluder.h);
-        if (R <= L || B <= T)
-            out.push_back(card);
-        else {
-            if (L > card.x)
-                out.push_back(CBox{card.x, card.y, L - card.x, card.h});
-            if (R < card.x + card.w)
-                out.push_back(CBox{R, card.y, card.x + card.w - R, card.h});
-            if (T > card.y)
-                out.push_back(CBox{L, card.y, R - L, T - card.y});
-            if (B < card.y + card.h)
-                out.push_back(CBox{L, B, R - L, card.y + card.h - B});
-        }
-    }
-    return out;
 }
 
 // Clip an axis-aligned segment (one of a card's four edges, box of thickness 0)
