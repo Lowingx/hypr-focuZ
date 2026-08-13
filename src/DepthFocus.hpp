@@ -98,23 +98,11 @@ class CDepthFocusManager {
     void refreshDepthCache();
     void promoteWindow(PHLWINDOW pWindow);
     void layoutStack();
-    // RENDER_PRE_WINDOWS hook: replace the composited background (monitor
-    // background, wallpaper and every BACKGROUND/BOTTOM layer surface) with an
-    // opaque black stage, the whole canvas redrawn scaled to `wallpaper_zoom`
-    // around the monitor center, and a full-workarea frosted plate — the deck
-    // sits on top. No-op unless the deck is live on the monitor being rendered.
-    void drawCanvas();
-    // RENDER_POST_WINDOWS hook: draw a border around every deck card (front and
-    // back) so the stack reads as distinct cards with a rim. Uses the live
-    // target box; border width/color/front-size/scatter configurable.
-    void drawCardBorders();
-    // RENDER_POST_WINDOWS hook (queued before drawCardBorders): a frosted-glass
-    // veil over each back card, denser with depth — the render-side "blur" that
-    // forces the Z recession (per-window blur radius isn't in the plugin API).
-    // Samples the same precomputed blur FB the canvas plate uses.
-    void drawCardFrost();
-    // Live target box of every deck card, projected to monitor space (empty box
-    // for invalid/fullscreen cards). Indexed like m_zStack; used as the occluder
-    // set when clipping back-card rims/veils against all shallower cards.
-    std::vector<CBox> projectedCardBoxes(Monitor::CMonitor* pMonitor, float sc);
+    void ensureFloating(PHLWINDOW w, SAppliedState& st);
+    CBox scatterOnEdges(Monitor::CMonitor* anchor, const CBox& frontBox,
+                        double cw, double ch, uintptr_t addr, size_t depth,
+                        uint64_t nonceMix, double peekMin);
+    CBox scatterAroundFocused(const CBox& frontBox, double cw, double ch,
+                              uint64_t seed, double peekMin, double peekMax);
+    CBox clampToWorkarea(const CBox& target, Monitor::CMonitor* anchor);
 };
