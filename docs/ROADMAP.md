@@ -7,9 +7,10 @@
 > done** — enough context for a new contributor to pick up work cold.
 >
 > **Visual target:** screenshots in `~/Downloads/deep_1-1_000.zip`
-> (`deep_1-1_*.png`). These frames define the exact look (depth, blur, canvas).
-> The PNGs need image analysis (mimo) to be converted into a concrete visual
-> spec.
+> (`deep_1-1_*.png`). These 140 frames define the exact look (depth, blur,
+> canvas). The PNGs show: dark wallpaper canvas behind the deck, frosted glass
+> blur on back cards, strong depth scale falloff, card borders/rims, and a
+> dark wallpaper scene with a hooded figure.
 
 ## 1. Vision
 
@@ -103,7 +104,7 @@ The render path was the only source of crashes; layout + opacity are safe.
 | M2.1 | ADR suite in `docs/adr/` covering the load-bearing decisions | In Progress | P0 | M |
 | M2.2 | `CONTRIBUTING.md`: onboarding, verification loop, DoD, review checklist | Todo | P1 | S |
 | M2.3 | Issue & PR templates + label taxonomy (`priority:*`, `area:*`, `status:*`) | Todo | P1 | S |
-| M2.4 | README / KANBAN.md reconciled with current state | Todo | P1 | S |
+| M2.4 | README / KANBAN.md reconciled with current state | Done | P1 | S |
 
 ---
 
@@ -114,7 +115,7 @@ The render path was the only source of crashes; layout + opacity are safe.
 | ID  | Task | Status | Prio | Effort |
 |-----|------|--------|------|--------|
 | M3.1 | Formalize the manual verification checklist (from AGENTS.md) into a runnable script + doc | Todo | P1 | M |
-| M3.2 | CI build verification: GitHub Actions compiling against pinned Hyprland headers | Todo | P1 | M |
+| M3.2 | CI build verification: GitHub Actions compiling against pinned Hyprland headers | Done | P1 | M |
 | M3.3 | ADR-compliance review gate on PRs | Candidate | P2 | S |
 
 ---
@@ -126,21 +127,21 @@ constraint in §2 — each feature must stay render-path-free.
 
 | ID  | Task | Status | Prio | Effort | Blocked by |
 |-----|------|--------|------|--------|------------|
-| M4.1 | Wallpaper canvas: draw a dimmed/zoomed background layer behind the deck | Todo | P1 | L | render-path-free re-add |
+| M4.1 | Wallpaper canvas: dimmed/zoomed background layer behind the deck | Todo | P1 | L | render-path-free re-add |
 | M4.2 | Blur behind back cards: native blur + per-card frost via decoration | Todo | P1 | L | render-path-free re-add |
-| M4.3 | Z-depth perception: steeper scale/opacity falloff tuned to target PNGs | Todo | P1 | M | mimo image analysis |
+| M4.3 | Z-depth perception: steeper scale/opacity falloff tuned to target PNGs | Todo | P1 | M | — |
 | M4.4 | Card borders: rim around back cards, clipped against front | Todo | P2 | L | render-path-free re-add |
 | M4.5 | Layer exclusions: per-class rules to never depth (docks, floats) | Todo | P1 | M | — |
 | M4.6 | Dim on startup: deck renders immediately without click-to-focus | Todo | P1 | M | — |
 
-**M4.1–M4.4 are blocked** by the architectural decision to stay render-path-free.
-Each requires a new safe render mechanism or integration with Hyprland's native
-features. Revisit when the render-path-free constraint is revisited or a safe
-API surface becomes available.
+**M4.1, M4.2, M4.4 are blocked** by the architectural decision to stay
+render-path-free. Each requires a new safe render mechanism or integration
+with Hyprland's native features. Revisit when the render-path-free constraint
+is revisited or a safe API surface becomes available.
 
-**M4.3 depends on image analysis** of `~/Downloads/deep_1-1_000.zip` by mimo.
-The PNGs define the exact scale/opacity curve. Until then, the falloff is
-approximate.
+**M4.3** is unblocked — the scale/opacity falloff can be tuned via config
+values (`layer_1_scale`, `layer_2_scale`, `layer_1_opacity`, `layer_2_opacity`)
+without touching the render path.
 
 ---
 
@@ -177,17 +178,18 @@ approximate.
 Now ─────────────────────────────────────────────────────────────►
 [M2] finish ADRs ─► onboarding docs ─► templates      (M2.1 → M2.4)
 [M3] checklist ───► CI build gate                       (M3.1 → M3.2)
-[M4] M4.3 (depth tuning via mimo) first; M4.6 (startup dim) next
+[M4] M4.3 (depth tuning) first; M4.5/M4.6 next         (unblocked items)
 [M5] triaged continuously; start with M5.1              (ongoing)
 [M6] M6.5 done; M6.1 (PKGBUILD) when neuromap reviews  (ongoing)
 ```
 
-- **Next up:** M2.1 (finish ADRs) → M2.2/M2.3 → M3.1 → M3.2.
-- **High-value early win:** M4.6 (dim on startup) is unblocked and improves
-  UX immediately.
-- **M4.1–M4.4 (visual parity)** require revisiting the render-path-free
-  constraint or finding a safe alternative. Track via image analysis of the
-  target PNGs.
+- **Next up:** M2.1 (finish ADRs) → M2.2/M2.3 → M3.1.
+- **High-value early win:** M4.3 (depth tuning) is unblocked and improves
+  visual parity immediately with config-only changes.
+- **M4.1, M4.2, M4.4 (canvas, frost, borders)** require revisiting the
+  render-path-free constraint or finding a safe alternative. The dead code in
+  `drawCanvas()`, `drawCardFrost()`, and `drawCardBorders()` is kept for
+  reference but must not be re-enabled without a safe render mechanism.
 
 ## 6. How to work on this project
 
