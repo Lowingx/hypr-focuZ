@@ -40,9 +40,17 @@ plugin API to grow first gets `status:blocked`.
 | #1 | Anchor the depth stack to the focused monitor | Done | P0 | core | M0 |
 | #2 | Restore windows on evict / disable / close | Done | P0 | core | M0 |
 | #3 | Keep the per-frame render hook O(1) | Done | P0 | core | M0 |
-| #4 | Record architecture decisions as ADRs | In Progress | P0 | docs | M2 |
+| #4 | Record architecture decisions as ADRs | Done | P0 | docs | M2 |
 | #8 | Add CI build verification | Done | P1 | ci | M3 |
 | #13 | Fix: deck mixed windows from different workspaces on the same monitor | Done | P0 | core | M0 |
+
+### Visual Parity Analysis (Completed)
+
+| Issue | Title | Status | Prio | Area | Milestone |
+|-------|-------|--------|------|------|-----------|
+| #31 | Visual parity analysis — target frame comparison | Done | P0 | docs | M4 |
+| #32 | Test infrastructure — Google Test setup | Done | P1 | ci | M3 |
+| #33 | Custom tester agent — Hyprland plugin QA | Done | P1 | docs | M3 |
 
 ### v2 — Visual target (M4–M6)
 
@@ -83,25 +91,61 @@ plugin API to grow first gets `status:blocked`.
 
 **Current parity:** ~60% (core depth effect works, visual polish missing)
 **Target:** `~/Downloads/deep_1-1_000.zip` (140 PNGs)
+**Analysis completed:** 2026-08-13
+**Action plan:** `docs/VISUAL-PARITY-ACTION-PLAN.md` (4 phases, 11-17 days)
 
-### What Works
-- Card scaling (back cards get smaller boxes)
-- Opacity reduction (per-layer alpha)
-- Card positioning (edge/around scatter)
-- Focus promotion (clicking card promotes to Layer 0)
-- Stack rebuilding (identity check prevents unnecessary rebuilds)
-- Workspace isolation (only anchor monitor's active workspace)
+### What Works ✅
 
-### What's Missing
-- Card borders (2px white/light rim) — Issue #15
-- Frosted glass effect (strong blur behind back cards) — Issue #17
-- Canvas plate (frosted matte surface) — New issue needed
-- Wallpaper canvas (dimmed/zoomed background) — Issue #16
-- Depth shadows (subtle per-card shadows) — Issue #23
-- Animation easing (smooth bezier curves) — Issue #22
+| Feature | Status | Config | Notes |
+|---------|--------|--------|-------|
+| Card scaling | ✅ | `layer1Scale=0.70`, `layer2Scale=0.50` | Back cards get smaller boxes |
+| Opacity reduction | ✅ | `layer1Opacity=0.85`, `layer2Opacity=0.70` | Per-layer alpha |
+| Card positioning | ✅ | `card_edge_scatter=true` | Edge or around-focused scatter |
+| Focus promotion | ✅ | — | Clicking card promotes to Layer 0 |
+| Stack rebuilding | ✅ | — | Identity check prevents unnecessary rebuilds |
+| Workspace isolation | ✅ | — | Only anchor monitor's active workspace |
+| Fullscreen skip | ✅ | — | Fullscreen windows not affected |
+| Unit tests | ✅ | — | 23 tests passing |
 
-### Action Plan
-See `docs/VISUAL-PARITY-ACTION-PLAN.md` for detailed implementation plan.
+### What's Missing ❌
+
+| Feature | Status | Issue | Priority | Phase |
+|---------|--------|-------|----------|-------|
+| Card borders | ❌ | #15 | P1 | Phase 2 |
+| Frosted glass | ❌ | #17 | P1 | Phase 2 |
+| Canvas plate | ❌ | New needed | P2 | Phase 3 |
+| Wallpaper canvas | ❌ | #16 | P1 | Phase 3 |
+| Depth shadows | ❌ | #23 | P2 | Phase 3 |
+| Animation easing | ❌ | #22 | P2 | Phase 3 |
+
+### Implementation Phases
+
+| Phase | Duration | Features | Status |
+|-------|----------|----------|--------|
+| Phase 1: Quick Wins | 1-2 days | Tune scale/opacity parameters | Ready |
+| Phase 2: Render-Path-Safe | 3-5 days | Card borders, frosted glass | Blocked on #15 |
+| Phase 3: Advanced | 5-7 days | Canvas plate, wallpaper, shadows | Blocked on Phase 2 |
+| Phase 4: Integration | 2-3 days | Config validation, docs, release | Blocked on Phase 3 |
+
+### Target Frame Analysis
+
+| Frames | State | Visual Characteristics |
+|--------|-------|------------------------|
+| 000–032 | Flat (pre-depth) | Single terminal, gray background, no depth |
+| 033–045 | Transition | Two windows visible, depth effect activating |
+| 046–108 | Active depth | 3+ cards, strong scale falloff, blurred back cards |
+| 109–118 | Active depth | Various configurations |
+| 119–139 | Return to flat | Back to single terminal |
+
+### Key Visual Characteristics (Target)
+
+1. **Card appearance:** Rounded corners, subtle white/light borders (~2px), semi-transparent
+2. **Blur:** Strong blur behind back cards (frosted glass effect)
+3. **Scale:** Back cards significantly smaller (strong depth falloff)
+4. **Positioning:** Cards scattered across the workarea (not just edges)
+5. **Background:** Flat gray (no wallpaper canvas visible in these frames)
+6. **Opacity:** Back cards noticeably more transparent than front
+7. **Shadows:** Subtle drop shadows under cards
 
 ## Notes
 
@@ -119,10 +163,13 @@ See `docs/VISUAL-PARITY-ACTION-PLAN.md` for detailed implementation plan.
   version-hash mismatch. Every collaborator must rebuild after upgrades.
 - **Per-layer blur radius (#21):** blocked by plugin API — blur size is the global
   `blur:size` setting; only an on/off `noblur` rule exists.
-- **Verification (#5):** build + load in a live session; headless testing is
-  impossible for a Hyprland plugin.
 - **Card borders via decoration:** safest render-path approach — use existing
   `CDepthShadowDecoration` to draw borders instead of `addPassElement`.
+- **Testing infrastructure:** Google Test with 23 unit tests covering pure
+  functions (randSeed, clampToWorkarea, scale calculations, deck factor).
+  Run with `./run-tests.sh` or `cmake --build build-tests && cd build-tests && ctest`.
+- **CI integration:** Unit tests run automatically on every push/PR via
+  `.github/workflows/build.yml`. All tests passing ✅.
 
 ## Operations
 
