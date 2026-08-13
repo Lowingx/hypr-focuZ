@@ -30,3 +30,9 @@ set_target_properties(focusZ PROPERTIES
 # Install
 include(GNUInstallDirs)
 install(TARGETS focusZ LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+
+# Tests
+option(BUILD_TESTS "Build tests" ON)
+if(BUILD_TESTS)
+    add_subdirectory(tests)
+endif()
