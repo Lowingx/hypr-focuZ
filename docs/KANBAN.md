@@ -79,11 +79,36 @@ plugin API to grow first gets `status:blocked`.
 | #5 | Headless tests: impossible, document the manual loop | Todo | P1 | ci/docs | M3 |
 | #6 | Rebuild flow on Hyprland upgrades (ABI lock) | Todo | P1 | ops | M6 |
 
+## Visual Parity Status
+
+**Current parity:** ~60% (core depth effect works, visual polish missing)
+**Target:** `~/Downloads/deep_1-1_000.zip` (140 PNGs)
+
+### What Works
+- Card scaling (back cards get smaller boxes)
+- Opacity reduction (per-layer alpha)
+- Card positioning (edge/around scatter)
+- Focus promotion (clicking card promotes to Layer 0)
+- Stack rebuilding (identity check prevents unnecessary rebuilds)
+- Workspace isolation (only anchor monitor's active workspace)
+
+### What's Missing
+- Card borders (2px white/light rim) — Issue #15
+- Frosted glass effect (strong blur behind back cards) — Issue #17
+- Canvas plate (frosted matte surface) — New issue needed
+- Wallpaper canvas (dimmed/zoomed background) — Issue #16
+- Depth shadows (subtle per-card shadows) — Issue #23
+- Animation easing (smooth bezier curves) — Issue #22
+
+### Action Plan
+See `docs/VISUAL-PARITY-ACTION-PLAN.md` for detailed implementation plan.
+
 ## Notes
 
 - **Visual target:** `~/Downloads/deep_1-1_000.zip` (140 PNGs defining the exact
-  depth/blur/canvas look). Frames show: dark wallpaper canvas behind the deck,
-  frosted glass blur on back cards, strong depth scale falloff, card borders/rims.
+  depth/blur/canvas look). Frames show: flat gray background, terminal windows
+  with "layer 3/2/1" text, landscape painting, strong depth scale falloff, cards
+  scattered across workarea, frosted glass blur behind back cards.
 - **Render-path-free constraint (M1):** the plugin must not call `addPassElement`,
   attach `IWindowTransformer`, or draw decorations. All crashes in v0.56.2 came
   from the render path. Issues #15–#17 need a new safe render mechanism.
@@ -96,6 +121,8 @@ plugin API to grow first gets `status:blocked`.
   `blur:size` setting; only an on/off `noblur` rule exists.
 - **Verification (#5):** build + load in a live session; headless testing is
   impossible for a Hyprland plugin.
+- **Card borders via decoration:** safest render-path approach — use existing
+  `CDepthShadowDecoration` to draw borders instead of `addPassElement`.
 
 ## Operations
 
