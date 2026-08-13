@@ -1,4 +1,4 @@
-# focusZ Kanban
+# focusZ Kanban v2
 
 The **`Lowingx/hypr-focuZ`** team board — a Hyprland plugin implementing a
 Z-axis depth-focus layout.
@@ -23,9 +23,8 @@ Z-axis depth-focus layout.
    decision is made so the reasoning is on the record.
 3. **Hand off** — open a PR, move the card to `In Review`, and add a reviewer.
 4. **Verify together** — a card reaches `Done` only when the change builds and
-   loads in a live Hyprland session. CI (`.github/workflows/build.yml`) is the
-   build gate; there is still no live-session test. Close the issue once the
-   repo docs reflect the state.
+   loads in a live Hyprland session (there is no CI or test suite yet; see
+   AGENTS.md). Close the issue once the repo docs reflect the state.
 5. **Retrospect** — at milestone boundaries, reconcile the board against
    `ROADMAP.md` and archive stale cards.
 
@@ -36,20 +35,29 @@ plugin API to grow first gets `status:blocked`.
 
 | Issue | Title | Status | Prio | Area | Milestone |
 |-------|-------|--------|------|------|-----------|
-| #1 | Anchor the depth stack to the focused monitor | Done | P0 | core | M0.2 |
-| #2 | Restore windows on evict / disable / close | Done | P0 | core | M0.3 |
-| #3 | Keep the per-frame render hook O(1) | Done | P0 | core | M0.4 |
-| #4 | Record architecture decisions as ADRs | Todo | P0 | docs | M1.1 |
-| #5 | Headless tests: impossible, document the manual loop | Todo | P1 | ci/docs | M2.1 |
-| #6 | Rebuild flow on Hyprland upgrades (ABI lock) | Todo | P1 | ops | M3.1 |
-| #7 | Per-layer blur radius (API limitation) | Blocked | P2 | feature | M4.1 |
-| #8 | Add CI build verification | Done | P1 | ci | M2.2 |
-| #9 | Blur behind background cards is not visible | Done | P1 | feature | M4.1 |
-| #10 | Pull the wallpaper back into the depth scene | Done | P1 | feature | M4.3 |
-| #11 | Strengthen the Z-axis perspective (scale/opacity falloff) | Done | P1 | feature | M4.3 |
-| #12 | CD: tagged releases with artifact + `make check` gate | Done | P1 | ci | M3.3 |
-| #13 | Fix: deck mixed windows from different workspaces on the same monitor | Done | P0 | core | M0.2 |
-| #14 | Fix: wallpaper-canvas dimmed the wrong layer (1×1 pill-inhibit) | Done | P0 | core | M4.3 |
+| #1 | Anchor the depth stack to the focused monitor | Done | P0 | core | M0 |
+| #2 | Restore windows on evict / disable / close | Done | P0 | core | M0 |
+| #3 | Keep the per-frame render hook O(1) | Done | P0 | core | M0 |
+| #4 | Record architecture decisions as ADRs | In Progress | P0 | docs | M2 |
+| #5 | Headless tests: impossible, document the manual loop | Todo | P1 | ci/docs | M3 |
+| #6 | Rebuild flow on Hyprland upgrades (ABI lock) | Todo | P1 | ops | M6 |
+| #7 | Per-layer blur radius (API limitation) | Blocked | P2 | feature | M4 |
+| #8 | Add CI build verification | Done | P1 | ci | M3 |
+| #9 | Blur behind background cards is not visible | Done | P1 | feature | M4 |
+| #10 | Pull the wallpaper back into the depth scene | Removed | P1 | feature | M4 |
+| #11 | Strengthen the Z-axis perspective (scale/opacity falloff) | Done | P1 | feature | M4 |
+| #13 | Fix: deck mixed windows from different workspaces on the same monitor | Done | P0 | core | M0 |
+| #14 | Fix: wallpaper-canvas dimmed the wrong layer (1×1 pill-inhibit) | Removed | P0 | core | M1 |
+
+### Notes
+
+- **#10, #14 Removed** — the canvas/wallpaper-dim render pass was removed
+  with the render path (M1). These are now tracked under M4.1 (wallpaper
+  canvas) in the v2 roadmap.
+- **#11 Done** — scale/opacity falloff implemented via `getTransformForLayer`
+  + `layoutStack` geometry. Tuned to 0.62/0.42 base with −0.13/−0.18 extra
+  per layer, floor at 0.22/0.05.
+- **#8 Done** — CI build verification via GitHub Actions (commit `6bb08d7`).
 
 ## Operations
 
@@ -59,7 +67,7 @@ Board changes go through the `gh` CLI. Every collaborator needs the `project`
 scope on their token:
 
 ```bash
-gh auth refresh -h github.com -s project
+gh auth refresh -s project
 ```
 
 ### Recreating the board (disaster recovery)
@@ -92,32 +100,10 @@ documents in sync when work is reprioritized.
 - **Per-layer blur radius (#7)** is blocked by the plugin API — blur size is
   the global `blur:size` setting; only an on/off `noblur` rule exists. The
   `layer_*_blur` config toggles are registered but inert.
-- **CI (#8)** ships as `.github/workflows/build.yml` (Arch container, `hyprland`
-  package) plus `make check` — a clean rebuild with `-Werror` so any warning
-  fails the build. Verified green.
-- **CD (#12)** ships as `.github/workflows/release.yml`: on tags `v*` it reruns
-  `make check`, rebuilds, and publishes `libfocusZ.so` + `SHA256SUMS` as a
-  GitHub Release via `gh`.
-- **Blur not visible (#9)** — root cause was back cards placed fully inside the
-  opaque focused card's footprint. Fixed by random-angle protrusion past the
-  front card; live-verified.
-- **Wallpaper pull (#10)** — implemented by dimming the wallpaper layer's fade
-  alpha via `LS_ALPHA_FADE`; geometry deliberately untouched. The dim is now
-  configurable (`plugin:focusZ:wallpaper_dim`, default 0.5) so the wallpaper
-  acts as a darker canvas behind the deck. Live-verified.
-- **Perspective (#11)** — scale/opacity falloff shipped (layer 1: 0.62,
-  layer 2: 0.42) and later reworked to interpolate from layer 2 down to the
-  floor (0.22 / 0.05) across the remaining `max_layers` — a fixed per-layer
-  step had collapsed every window past depth 3 to the floor, so deep cards
-  looked identical. Live-verified.
-- **Workspace mixing (#13)** — the stack was anchored to the monitor only, so
-  focusing a window on another workspace of the same monitor promoted it onto
-  the old deck. The stack now records its workspace and rebuilds when it
-  changes. Live-verified.
-- **Wallpaper-canvas bug (#14)** — `pullWallpaper` picked the first visible
-  surface on the BACKGROUND layer, which was quickshell's 1×1 `pill-inhibit`
-  helper, dimming a 1-px sprite instead of the wallpaper. It now matches a
-  known wallpaper namespace (awww-daemon, mpvpaper, …) or falls back to the
-  first fullscreen surface. Live-verified.
+- **Render-path-free (M1)** is now a hard constraint: the plugin must not call
+  `addPassElement`, attach `IWindowTransformer`, or draw decorations. All
+  crashes in v0.56.2 came from the render path.
+- **Visual target** = `~/Downloads/deep_1-1_000.zip` (130+ PNGs defining the
+  exact depth/blur/canvas look). Needs mimo image analysis for concrete specs.
 - **Verification (#5)** is build + load in a live session; headless testing is
   impossible for a Hyprland plugin.

@@ -20,14 +20,16 @@ SP<Render::IFramebuffer> CScaleTransformer::transform(SP<Render::IFramebuffer> i
     if (!renderer)
         return in;
 
-    const auto PWINDOW  = m_window.lock();
-    const auto PMONITOR = renderer->m_renderData.pMonitor;
-    if (!PWINDOW || !PMONITOR)
+    const auto PWINDOW = m_window.lock();
+    if (!PWINDOW)
         return in;
 
-    // Window box in monitor pixel space. Mirrors Renderer.cpp renderWindow:
-    // getFullWindowBoundingBox() -> translate by (workspace offset + floating
-    // offset - monitor pos) -> scale by monitor scale.
+    // Use the window's own monitor reference instead of renderer->m_renderData.pMonitor
+    // (the latter can be a corrupted WP during the first render of a newly-mapped window).
+    const auto PMONITOR = PWINDOW->m_monitor.lock();
+    if (!PMONITOR)
+        return in;
+
     CBox winBox = PWINDOW->getFullWindowBoundingBox();
     winBox.translate((PWINDOW->m_pinned ? Vector2D{} :
                       (PWINDOW->m_workspace ? PWINDOW->m_workspace->m_renderOffset->value() : Vector2D{})) +

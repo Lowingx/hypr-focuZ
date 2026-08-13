@@ -11,6 +11,10 @@
 #include <vector>
 #include <unordered_map>
 
+namespace Monitor {
+class CMonitor;
+}
+
 struct SLayerTransform {
     float scale   = 1.0f;
     float opacity = 1.0f;
@@ -34,7 +38,7 @@ struct SAppliedState {
 class CDepthFocusManager {
   public:
     CDepthFocusManager();
-    ~CDepthFocusManager() = default;
+    ~CDepthFocusManager();
 
     void onFocusChange(PHLWINDOW pWindow, Desktop::eFocusReason reason);
     void onWindowOpen(PHLWINDOW pWindow);
@@ -46,6 +50,11 @@ class CDepthFocusManager {
 
     // Transform parameters for a given layer depth.
     SLayerTransform getTransformForLayer(int depth) const;
+
+    // How full the deck is relative to max_layers: 0.0 with a single window,
+    // 1.0 once the deck reaches max_layers. Drives the progressive canvas
+    // (zoom/dim/plate) and the per-window shadow scaling.
+    float getDeckFactor() const;
 
     // Apply all depth transforms to the current window stack.
     void applyAllDepthTransforms();
@@ -74,11 +83,14 @@ class CDepthFocusManager {
     // Last-seen value of plugin:focusZ:stacking, so toggles force a re-apply.
     bool m_stackingActive = true;
 
-    // The wallpaper layer surface pulled back into the depth scene (dimmed) while
-    // the stack is active; geometry is NOT touched (the compositor owns layer
-    // arrangement and reconfigures the client), only the layer's fade alpha.
-    PHLLSREF m_wallpaper;
-    bool     m_wallpaperDimmed = false;
+    // Bumped on every rebuildStack: re-deals the back-card scatter so spawn
+    // positions look freshly random instead of permanently glued to a hash of
+    // the window address. Zero/off = the old stable-per-window positions.
+    uint64_t m_dealNonce = 0;
+
+    // Deferred init: PLUGIN_INIT cannot access config values, so init()
+    // is called on the first event instead.
+    bool m_needsInit = true;
 
     void rebuildStack();
     void applyDepthToWindow(PHLWINDOW pWindow, int depth);
@@ -86,5 +98,23 @@ class CDepthFocusManager {
     void refreshDepthCache();
     void promoteWindow(PHLWINDOW pWindow);
     void layoutStack();
-    void pullWallpaper(bool pull);
+    // RENDER_PRE_WINDOWS hook: replace the composited background (monitor
+    // background, wallpaper and every BACKGROUND/BOTTOM layer surface) with an
+    // opaque black stage, the whole canvas redrawn scaled to `wallpaper_zoom`
+    // around the monitor center, and a full-workarea frosted plate — the deck
+    // sits on top. No-op unless the deck is live on the monitor being rendered.
+    void drawCanvas();
+    // RENDER_POST_WINDOWS hook: draw a border around every deck card (front and
+    // back) so the stack reads as distinct cards with a rim. Uses the live
+    // target box; border width/color/front-size/scatter configurable.
+    void drawCardBorders();
+    // RENDER_POST_WINDOWS hook (queued before drawCardBorders): a frosted-glass
+    // veil over each back card, denser with depth — the render-side "blur" that
+    // forces the Z recession (per-window blur radius isn't in the plugin API).
+    // Samples the same precomputed blur FB the canvas plate uses.
+    void drawCardFrost();
+    // Live target box of every deck card, projected to monitor space (empty box
+    // for invalid/fullscreen cards). Indexed like m_zStack; used as the occluder
+    // set when clipping back-card rims/veils against all shallower cards.
+    std::vector<CBox> projectedCardBoxes(Monitor::CMonitor* pMonitor, float sc);
 };

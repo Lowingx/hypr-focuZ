@@ -39,7 +39,9 @@ top troubleshooting issue in README.
 - All options live under `plugin:focusZ:` and are registered by name in
   src/main.cpp via `makeConfigValue` (`enabled`, `stacking`, `max_layers`,
   `layer_1_scale`, `layer_1_opacity`, `layer_1_blur`, `layer_2_*`,
-  `animation_speed`, `wallpaper_dim`, `center_scale`). These names must stay in
+  `animation_speed`, `wallpaper_dim`, `wallpaper_zoom`, `canvas_zoom_floor`,
+  `canvas_dim_floor`, `canvas_plate`, `canvas_plate_alpha`,
+  `canvas_plate_alpha_max`, `canvas_shadow_boost`, `center_scale`). These names must stay in
   sync between src/main.cpp and hyprland.conf.
 - No way to test headless. Manual loop: `hyprctl plugin list` to confirm load,
   `hyprctl getoption plugin:focusZ:enabled`, then alt-tab with ≥2 windows on a
@@ -161,3 +163,72 @@ top troubleshooting issue in README.
   subclass drawing the depth-varying shadow.
 - `src/globals.hpp` holds `PHANDLE` + shared config-value smart pointers consumed
   everywhere; don't introduce parallel access patterns.
+
+## Canvas read: wallpaper zoom + frosted plate (shipped 2026-08-07)
+
+Two mechanisms turn the wallpaper + deck into a receding-canvas scene:
+
+- **`plugin:focusZ:wallpaper_zoom`** (float 0.5–1.0, default 0.88): at
+  `RENDER_POST_WALLPAPER` (onRenderStage → `drawZoomedWallpaper`,
+  DepthFocus.cpp) the plugin pushes two pass elements — an **opaque black
+  `CClearPassElement`** over the whole monitor, then a **`CTexPassElement`**
+  of the wallpaper scaled to `zoom`, centered. The clear is safe because
+  `renderBackground` + the BACKGROUND layer surfaces are queued into the SAME
+  pass BEFORE the stage emit (Renderer.cpp:1161-1169), so it deterministically
+  erases the compositor's bg + the full-screen wallpaper element, and our copy
+  is the only thing left under the windows — no reliance on fb pre-clear state,
+  and no leak to later elements (a translucent tex is never occlusion-culled).
+  The tex element re-applies the dim by reading the layer's live
+  `LS_ALPHA_FADE` (`ls->alpha().get(LS_ALPHA_FADE)->value()`), because the tex
+  path bypasses the layer alpha channel — keep it in sync with `pullWallpaper`.
+  The wallpaper surface texture comes from
+  `ls->wlSurface()->resource()->m_current.texture` + `m_current.size` (NOT the
+  fallback `pMonitor->m_background`). Boxes are built from
+  `pMonitor->m_transformedSize` (projection space, matches renderBackground).
+  **Side effect:** the opaque clear erases every other BACKGROUND-layer surface
+  (the quickshell 1x1 pill-inhibit helper etc.) while the deck is live — they
+  are invisible, so accepted. The zoom only fires while the deck is live on the
+  monitor being rendered (stacking on, `m_monitor` == current monitor, stack
+  non-empty, wallpaper mapped + textured) and is skipped at `zoom >= 0.995`.
+- **`plugin:focusZ:canvas_plate`** (bool, default true): the deepest card in
+  the stack becomes a full-workarea translucent matte — `layoutStack` gives it
+  `logicalBoxMinusReserved()` instead of the scatter, and
+  `applyAllDepthTransforms`/`applyDepthToWindow` pin its alpha to the floor
+  (0.05) regardless of its depth (a 2-window stack would otherwise render a
+  0.5-alpha plate). The frost comes from the global blur the translucent
+  non-opaque window triggers BEHIND it across the whole workarea — the plate's
+  own content is almost invisible and that is intended. Plate role is tracked
+  in `SAppliedState::plate` and compared in the apply-skip check, because the
+  deepest card can become/stop being the plate WITHOUT a depth change; promote
+  logic is untouched (plate card is depth>0, restored like any back card).
+- Validation loop (manual, no restart needed after `hyprctl reload`):
+  `hyprctl getoption plugin:focusZ:wallpaper_zoom`, toggle
+  `hyprctl eval 'hl.config({ ["plugin.focusZ.wallpaper_zoom"] = 1.0 })'` to see
+  the canvas/stage disappear, alt-tab to watch the plate role pass to the new
+  deepest card. A NEW plugin build still needs a session restart (ABI lock).
+
+## Progressive canvas (shipped 2026-08-07)
+
+The canvas is not a fixed one-shot recession: it deepens with every window in
+the deck. `CDepthFocusManager::getDeckFactor()` returns how full the deck is
+relative to `max_layers` (0.0 with just the focused window, 1.0 once the stack
+reaches `max_layers`); each window past the first adds an equal share. That
+factor drives all three layers at once in `drawCanvas()` and the shadows:
+
+- **zoom** walks `wallpaper_zoom` (base, 1-window deck) → `canvas_zoom_floor`
+  (default 0.55) — the wallpaper recedes further with each window.
+- **dim** walks `wallpaper_dim` (0.5) → `canvas_dim_floor` (default 0.15) — the
+  canvas darkens with each window.
+- **plate alpha** walks `canvas_plate_alpha` (0.05) → `canvas_plate_alpha_max`
+  (0.25) — the frosted matte thickens with each window. NOTE the doc above is
+  stale on the plate: `drawCanvas` (RENDER_PRE_WINDOWS) now draws a plain
+  `CRectPassElement` alpha matte (no live blur — a fullscreen rect blur painted
+  the canvas black and was removed; plate role is NOT `SAppliedState::plate`,
+  that field no longer exists).
+- **shadows** (`CDepthShadowDecoration::drawShadow`) multiply their base
+  range/alpha by `1 + (canvas_shadow_boost - 1) * factor` (default boost 1.5x)
+  — cards cast deeper shadows as the deck fills. `setDeckFactor` is re-propagated
+  on every `applyAllDepthTransforms`, because the factor changes when windows
+  open/close even for cards whose layer depth stays the same.
+
+

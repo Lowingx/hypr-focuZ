@@ -1,53 +1,56 @@
-# focusZ Roadmap
+# focusZ Roadmap v2
 
 **Repository:** `Lowingx/hypr-focuZ` · **Board:** [focusZ Kanban](https://github.com/users/Lowingx/projects/3)
 
 > Live status lives on the kanban board. This document explains **why each
 > milestone exists**, **what each task involves**, and **how to know a task is
 > done** — enough context for a new contributor to pick up work cold.
+>
+> **Visual target:** screenshots in `~/Downloads/deep_1-1_000.zip`
+> (`deep_1-1_*.png`). These frames define the exact look (depth, blur, canvas).
+> The PNGs need image analysis (mimo) to be converted into a concrete visual
+> spec.
 
 ## 1. Vision
 
 focusZ is a Hyprland plugin that renders windows in a Z-axis depth layout: the
 focused window sits in the foreground at full scale while background windows
-recede with reduced scale, opacity, and a depth-scaled shadow. Switching focus
-animates the Z-stack smoothly using Hyprland's native animation system.
-
-The product goal is **zero-friction depth-focus**: it must feel instant, must
-never corrupt window geometry, and must never degrade compositor performance.
+recede with reduced scale, opacity, and a depth-scaled shadow. The product goal
+is **zero-friction depth-focus**: it must feel instant, must never corrupt
+window geometry, and must never degrade compositor performance.
 
 ## 2. Load-bearing constraints (do not break these)
 
-Every task below exists to protect or extend these invariants. A change that
-violates one is not ready to merge regardless of how it's tested.
-
-1. **Hot path is O(1).** The `RENDER_PRE_WINDOW` hook fires per window per
-   frame. Depth must come from `m_depthCache` (rebuilt only on stack
-   mutations), and unchanged windows must not be re-damaged.
-2. **Scaling never compounds.** `m_applied` (`SAppliedState`) is the single
+1. **Render-path-free.** The plugin must not touch Hyprland's render path —
+   no `addPassElement`, no `IWindowTransformer`, no decoration `draw()`. The
+   render path SEGVs on v0.56.2 (see `hyprlandCrashReport*.txt`). All visual
+   effects come from safe layout + opacity + native blur only.
+2. **Hot path is O(1).** The focus/open/close event handlers fire per window.
+   Depth must come from `m_depthCache` (rebuilt only on stack mutations), and
+   unchanged windows must not be re-damaged.
+3. **Scaling never compounds.** `m_applied` (`SDepthState`) is the single
    source of truth for each window's depth, decoration, and original unscaled
-   geometry. Restore reads that geometry back; it is captured once and
-   re-captured only when the layout goal grows past `orig * scale`.
-3. **Per-monitor isolation.** The depth stack is anchored to the focused
+   geometry. Restore reads that geometry back.
+4. **Per-monitor isolation.** The depth stack is anchored to the focused
    window's monitor. Other monitors are never touched.
-4. **ABI lock.** The plugin is ABI-locked to the exact Hyprland build it was
+5. **ABI lock.** The plugin is ABI-locked to the exact Hyprland build it was
    compiled against (`PLUGIN_INIT` hash check). Any Hyprland upgrade requires
-   `make clean && make` + reload.
-5. **Config name sync.** Options are registered in `src/main.cpp`
-   (`makeConfigValue`) and must match `hyprland.conf` under `plugin:focusZ:`
+   rebuild + reload.
+6. **Config name sync.** Options are registered in `src/main.cpp`
+   (`addConfigValueV2`) and must match `hyprland.conf` under `plugin:focusZ:`
    exactly.
-6. **No headless tests.** A Hyprland plugin cannot be tested headless. The
-   only verification is build + load in a live session (manual loop in
-   AGENTS.md).
+7. **No overview interference.** focusZ must never bind `ALT+Tab` or
+   `SUPER+Tab` — those belong to Ryoku's overview. `focusZ:cycle` is only
+   invoked via explicit config bind.
 
 ## 3. Definition of Done (applies to every task)
 
-- `make clean && make` compiles with **zero warnings** (`-Wall -Wextra`).
+- `cmake -B build && cmake --build build` compiles with **zero errors**.
 - Plugin loads live: `hyprctl plugin list` shows it, and
   `hyprctl getoption plugin:focusZ:enabled` responds.
-- The relevant manual checklist passes (see M2.1).
+- The relevant manual checklist passes (see M4.1).
 - If the change is architectural, an ADR was written or updated.
-- If config or behavior changed, README / AGENTS.md / KANBAN.md were updated.
+- If config or behavior changed, README / KANBAN.md were updated.
 - Config option names in `src/main.cpp` and `hyprland.conf` stay in sync.
 
 ## 4. Milestones
@@ -58,10 +61,10 @@ Effort: **S** < 1h · **M** < 1d · **L** > 1d.
 
 ---
 
-### M0 — Foundation: core depth engine
+### M0 — Foundation (shipped)
 
 **Goal:** the plugin builds, loads, and produces the depth effect on the
-focused monitor. *Shipped in the working tree; not yet committed.*
+focused monitor.
 
 | ID  | Task | Status | Prio | Effort |
 |-----|------|--------|------|--------|
@@ -70,96 +73,101 @@ focused monitor. *Shipped in the working tree; not yet committed.*
 | M0.3 | Window lifecycle: restore on evict / disable / close, no scale compounding | Done | P0 | M |
 | M0.4 | O(1) render hook: depth cache + skip-unchanged, shadow decoration lifecycle | Done | P0 | M |
 
-**Ship blocker:** nothing technical remains — the working tree must be
-committed (see `git status`). That commit closes #1, #2, #3.
-
 ---
 
-### M1 — Collaborative foundation: records, docs, tooling
+### M1 — Stability pivot (shipped)
 
-**Goal:** a new contributor can onboard in under 30 minutes, and the project
-has a paper trail that survives the rewrite. *This milestone makes the rest of
-the roadmap safe to parallelize.*
+**Goal:** stop crashing Hyprland. Remove all render-path code so the plugin
+cannot SEGV the compositor.
 
 | ID  | Task | Status | Prio | Effort |
 |-----|------|--------|------|--------|
-| M1.1 | ADR suite in `docs/adr/` covering the load-bearing decisions | In Progress | P0 | M |
-| M1.2 | `CONTRIBUTING.md`: onboarding, verification loop, DoD, review checklist | Todo | P1 | S |
-| M1.3 | Issue & PR templates + label taxonomy (`priority:*`, `area:*`, `status:*`) | Todo | P1 | S |
-| M1.4 | README / AGENTS.md / KANBAN.md reconciled with the ADRs | Todo | P1 | S |
+| M1.1 | Remove `CScaleTransformer` attachment (dead code in stacking mode) | Done | P0 | S |
+| M1.2 | Empty `onRenderStage` — no `drawCardBorders`/`drawCanvas`/`drawCardFrost` | Done | P0 | S |
+| M1.3 | Remove `CDepthShadowDecoration` attachment (no-op draw, was in render path) | Done | P0 | S |
+| M1.4 | Deck via safe primitives: floating geometry + alpha + native blur | Done | P0 | M |
 
-**M1.1 scope** — one ADR per decision, each ~1 page:
-- **ADR-001** Per-monitor depth-stack anchoring.
-- **ADR-002** `SAppliedState` + original-geometry tracking (anti-compounding).
-- **ADR-003** Shadow-decoration lifecycle and the blur API limitation.
-- **ADR-004** ABI-lock policy: hash check, rebuild flow, upgrade procedure.
-- **ADR-005** Config ownership: `src/main.cpp` registration ↔ `hyprland.conf`
-  sync contract.
-
-**Acceptance (M1.1):** `docs/adr/` exists with numbered entries; each record
-states context / decision / consequences; ADRs referenced from README.
+**Root cause of v1 crashes:** `drawCardBorders()` called
+`g_pHyprRenderer->addPassElement()` inside `RENDER_POST_WINDOWS`, which
+SEGVs inside Hyprland's `addPassElement` on v0.56.2 (backtrace frame #4).
+The render path was the only source of crashes; layout + opacity are safe.
 
 ---
 
-### M2 — Quality gates
+### M2 — Docs & records (shipped)
 
-**Goal:** no regression ships silently. Every change is verifiable without a
-fresh Hyprland session on the author's machine.
+**Goal:** a new contributor can onboard in under 30 minutes.
 
 | ID  | Task | Status | Prio | Effort |
 |-----|------|--------|------|--------|
-| M2.1 | Formalize the manual verification checklist (from AGENTS.md) into a runnable script + doc | Todo | P1 | M |
-| M2.2 | CI build verification: GitHub Actions compiling `make` against pinned Hyprland headers | Todo | P1 | M |
-| M2.3 | Extract pure transform math (`getTransformForLayer`, scale/center offset) for unit tests | Candidate | P2 | M |
-| M2.4 | ADR-compliance review gate on PRs (ADRs must exist for architectural changes) | Candidate | P2 | S |
-
-**M2.1 scope** — turn the prose loop into a checklist with pass/fail steps:
-load (`hyprctl plugin list`), config read (`getoption`), focus cycle with ≥2
-windows, eviction past `max_layers`, disable + `hyprctl reload` geometry
-restore, multi-monitor anchor, close-while-stacked.
-
-**M2.2 notes** — deps come via pkg-config: `hyprland`, `pixman-1`, `libdrm`.
-Pin the `hyprland` version (currently 0.56.1) so CI matches the ABI contract.
+| M2.1 | ADR suite in `docs/adr/` covering the load-bearing decisions | In Progress | P0 | M |
+| M2.2 | `CONTRIBUTING.md`: onboarding, verification loop, DoD, review checklist | Todo | P1 | S |
+| M2.3 | Issue & PR templates + label taxonomy (`priority:*`, `area:*`, `status:*`) | Todo | P1 | S |
+| M2.4 | README / KANBAN.md reconciled with current state | Todo | P1 | S |
 
 ---
 
-### M3 — Operational hardening
+### M3 — Quality gates
 
-**Goal:** the plugin survives Hyprland upgrades and real-world daily use
-without manual archaeology.
+**Goal:** no regression ships silently.
 
 | ID  | Task | Status | Prio | Effort |
 |-----|------|--------|------|--------|
-| M3.1 | Rebuild-on-upgrade flow: helper (`make upgrade` or hook) + documented procedure | Todo | P1 | M |
-| M3.2 | Reproducible build: pin exact deps, parity between CI and dev machines | Candidate | P2 | M |
-| M3.3 | Release process: tagged releases + changelog (from M0-M2 checklists) | Candidate | P2 | S |
-| M3.4 | Compatibility/support matrix doc (Hyprland versions tested) | Candidate | P2 | S |
-
-**M3.1 context** — the plugin self-unloads on version-hash mismatch. A script
-that detects a `hyprland` package change and triggers rebuild + reload turns a
-frequent footgun into a one-command operation.
+| M3.1 | Formalize the manual verification checklist (from AGENTS.md) into a runnable script + doc | Todo | P1 | M |
+| M3.2 | CI build verification: GitHub Actions compiling against pinned Hyprland headers | Todo | P1 | M |
+| M3.3 | ADR-compliance review gate on PRs | Candidate | P2 | S |
 
 ---
 
-### M4 — Feature backlog
+### M4 — Visual parity (v2)
 
-**Goal:** grow the effect. Triage here happens against the constraints in §2 —
-each feature must keep the hot path O(1) and the geometry restore exact.
+**Goal:** match the visual target (deep_1-1_*.png). Triage here against the
+constraint in §2 — each feature must stay render-path-free.
+
+| ID  | Task | Status | Prio | Effort | Blocked by |
+|-----|------|--------|------|--------|------------|
+| M4.1 | Wallpaper canvas: draw a dimmed/zoomed background layer behind the deck | Todo | P1 | L | render-path-free re-add |
+| M4.2 | Blur behind back cards: native blur + per-card frost via decoration | Todo | P1 | L | render-path-free re-add |
+| M4.3 | Z-depth perception: steeper scale/opacity falloff tuned to target PNGs | Todo | P1 | M | mimo image analysis |
+| M4.4 | Card borders: rim around back cards, clipped against front | Todo | P2 | L | render-path-free re-add |
+| M4.5 | Layer exclusions: per-class rules to never depth (docks, floats) | Todo | P1 | M | — |
+| M4.6 | Dim on startup: deck renders immediately without click-to-focus | Todo | P1 | M | — |
+
+**M4.1–M4.4 are blocked** by the architectural decision to stay render-path-free.
+Each requires a new safe render mechanism or integration with Hyprland's native
+features. Revisit when the render-path-free constraint is revisited or a safe
+API surface becomes available.
+
+**M4.3 depends on image analysis** of `~/Downloads/deep_1-1_000.zip` by mimo.
+The PNGs define the exact scale/opacity curve. Until then, the falloff is
+approximate.
+
+---
+
+### M5 — Config & UX
+
+**Goal:** make the plugin feel polished and configurable.
 
 | ID  | Task | Status | Prio | Effort |
 |-----|------|--------|------|--------|
-| M4.1 | Per-layer blur radius (#7) | Blocked | P2 | L |
-| M4.2 | Layer exclusions: per-class rules to never depth (e.g. docks, floats) | Todo | P1 | M |
-| M4.3 | Configurable depth→transform curves (scale/opacity as a function of layer) | Todo | P2 | M |
-| M4.4 | Shadow intensity/color config for background layers | Todo | P2 | S |
-| M4.5 | Animation easing/bezier per transition | Todo | P2 | S |
-| M4.6 | Multi-monitor participation policy (which monitors participate) | Todo | P2 | M |
+| M5.1 | Animation easing/bezier per transition | Todo | P2 | S |
+| M5.2 | Shadow intensity/color config for background layers | Todo | P2 | S |
+| M5.3 | Multi-monitor participation policy | Todo | P2 | M |
+| M5.4 | Configurable depth→transform curves (scale/opacity as f(layer)) | Todo | P2 | M |
 
-**M4.1 is blocked** by the plugin API: there is only an on/off `noblur` window
-rule, and blur radius is the global `blur:size`. The `layer_1_blur` /
-`layer_2_blur` options are registered for config compatibility but inert.
-Revisit only if a render-pass blur hook becomes available; otherwise keep
-documented as a limitation.
+---
+
+### M6 — Ryoku integration
+
+**Goal:** ship focusZ inside the Ryoku distro.
+
+| ID  | Task | Status | Prio | Effort |
+|-----|------|--------|------|--------|
+| M6.1 | `ryoku-focusZ` PKGBUILD (release/packages/) | Todo | P0 | M |
+| M6.2 | Module sync: `hyprland/modules/focusz.lua` tracks plugin version | Todo | P1 | M |
+| M6.3 | ABI rebuild flow: detect `hyprland` package change, trigger rebuild | Todo | P1 | M |
+| M6.4 | Defaults in `hyprland.lua`: when module is on, config values | Todo | P1 | S |
+| M6.5 | Integration roadmap for neuromap (standalone doc) | Done | P0 | M |
 
 ---
 
@@ -167,17 +175,19 @@ documented as a limitation.
 
 ```
 Now ─────────────────────────────────────────────────────────────►
-[M1] finish ADRs ─► onboarding docs ─► templates      (M1.1 → M1.4)
-[M2] checklist ───► CI build gate                       (M2.1 → M2.2)
-[M3] upgrade flow ─► reproducible build ─► release      (M3.1 → M3.4)
-[M4] triaged continuously; start with M4.2              (ongoing)
+[M2] finish ADRs ─► onboarding docs ─► templates      (M2.1 → M2.4)
+[M3] checklist ───► CI build gate                       (M3.1 → M3.2)
+[M4] M4.3 (depth tuning via mimo) first; M4.6 (startup dim) next
+[M5] triaged continuously; start with M5.1              (ongoing)
+[M6] M6.5 done; M6.1 (PKGBUILD) when neuromap reviews  (ongoing)
 ```
 
-- **Next up (shortest path to "safe for contributors"):** M1.1 (finish ADR-004
-  and ADR-005) → M1.2/M1.3 → M2.1 → M2.2.
-- **High-value early win:** M4.2 (layer exclusions) is the most-requested
-  production feature and is unblocked by any API.
-- **Keep in mind:** nothing ships without §3 DoD and the §2 invariants.
+- **Next up:** M2.1 (finish ADRs) → M2.2/M2.3 → M3.1 → M3.2.
+- **High-value early win:** M4.6 (dim on startup) is unblocked and improves
+  UX immediately.
+- **M4.1–M4.4 (visual parity)** require revisiting the render-path-free
+  constraint or finding a safe alternative. Track via image analysis of the
+  target PNGs.
 
 ## 6. How to work on this project
 
@@ -194,11 +204,12 @@ Now ─────────────────────────�
 | Label | Meaning |
 |-------|---------|
 | `priority:p0` / `p1` / `p2` | Critical / should / nice-to-have |
-| `area:core` | Depth engine, render hook, geometry |
+| `area:core` | Depth engine, layout, geometry |
 | `area:docs` | README, AGENTS.md, ADRs, CONTRIBUTING |
 | `area:ci` | Build verification, automation |
 | `area:ops` | Upgrade flow, releases, support |
 | `area:feature` | Product backlog items |
+| `area:visual` | Blur, canvas, borders, depth tuning |
 | `status:blocked` | Waiting on API or upstream |
 | `status:good-first-issue` | Onboarding friendly |
 | `status:help-wanted` | Open for external contribution |

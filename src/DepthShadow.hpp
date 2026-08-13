@@ -25,9 +25,15 @@ class CDepthShadowDecoration : public IHyprWindowDecoration {
     void setDepth(int depth) { m_depth = depth; }
     int  getDepth() const { return m_depth; }
 
+    // 0.0 with a single-window deck, 1.0 at max_layers — deepens the shadow as
+    // the deck fills. Mirrors CDepthFocusManager::getDeckFactor().
+    void  setDeckFactor(float f) { m_deckFactor = f; }
+    float getDeckFactor() const { return m_deckFactor; }
+
   private:
     PHLWINDOWREF m_window;
     int          m_depth = 1;
+    float        m_deckFactor = 0.0f;
 
     CBox m_lastBox = {};
 

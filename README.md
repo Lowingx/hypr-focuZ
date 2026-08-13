@@ -117,9 +117,50 @@ plugin {
         # canvas, dimmed so the cards read against it (0.1 = very dark, 1.0 = unchanged)
         wallpaper_dim = 0.5       # 0.1 - 1.0
 
+        # The canvas recedes progressively with the deck: each window past the
+        # first walks zoom/dim/plate from the base values above toward these
+        # floors (reached when the stack hits max_layers).
+        canvas_zoom_floor = 0.55         # 0.3 - 1.0  (smaller = deeper recession)
+        canvas_dim_floor = 0.15          # 0.05 - 1.0 (smaller = darker canvas)
+
+        # Frosted plate over the canvas — alpha thickens as the deck fills.
+        canvas_plate_alpha = 0.05        # 0.0 - 1.0
+        canvas_plate_alpha_max = 0.25    # 0.0 - 1.0
+
+        # Card shadow strength at a full deck (1.0 = no boost from base shadow).
+        canvas_shadow_boost = 1.5        # 1.0 - 3.0
+
         # Scale windows toward monitor center (true) or top-left (false)
         # NOTE: reserved — not currently wired to anything.
         center_scale = true
+
+        # Front card size as a fraction of the workarea (0.5 - 1.0)
+        card_front_scale = 0.72
+
+        # Back-card scatter: tucked at workarea corners (true) or fanned around
+        # the front card (false)
+        card_edge_scatter = true
+
+        # Re-deal back-card spawns every time the deck (re)builds — positions
+        # are stable between frames but reshuffle on each rebuild. Off = fixed
+        # per-window spots that never move.
+        card_scatter_reshuffle = true
+
+        # Back-card peek distance from the workarea edge (edge mode) / how far a
+        # card protrudes past the front footprint (around mode).
+        card_peek_min = 24      # px
+        card_peek_max = 80      # px
+
+        # Rim around every deck card so the stack reads as distinct cards.
+        card_border = true
+        card_border_width = 1       # px
+        card_border_color = 0xccffffff  # 0xAARRGGBB
+
+        # Frosted-glass veil over the back cards, denser with depth — the
+        # render-side depth blur. Per-window blur radius isn't part of the plugin
+        # API, so this (not layer_1_blur / layer_2_blur) is what frosts the deck.
+        card_frost = true
+        card_frost_strength = 0.4   # 0 - 1; ~0.7x this at depth 1 up to this deep
 
         # Write a debug log + heartbeat to ~/.local/share/hyprland/focusz-debug.log
         debug = false
@@ -164,9 +205,14 @@ The plugin hooks into four Hyprland systems:
    the plugin floated are returned to tiling on restore; user-floated windows are
    left alone. Fullscreen windows are skipped.
 
-4. **Depth shadow** — Background windows receive a `CDepthShadowDecoration`
-   (`IHyprWindowDecoration` subclass) whose shadow range/offset varies with the
-   layer. It is removed when the window returns to Layer 0 or leaves the stack.
+4. **Depth shadow + frost** — Every deck card (front and back) receives a
+   `CDepthShadowDecoration` (`IHyprWindowDecoration` subclass) whose shadow
+   range/offset/alpha form a monotonic drop ladder — the opaque front card casts
+   the largest shadow so it lifts off the plate, back cards' shadows recede. At
+   RENDER_POST_WINDOWS a `card_frost` veil draws a frosted-glass pane over each
+   back card, denser with depth, sampling the same precomputed blur the canvas
+   plate uses — the render-side depth blur. Both are removed when the window
+   leaves the stack.
 
 Depth lookups in the render path are O(1) (cached per window), and windows whose
 depth didn't change are never re-damaged, so the per-frame cost is flat.
