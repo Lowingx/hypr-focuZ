@@ -3,7 +3,7 @@
 **Agent:** Test Coverage Gaps  
 **Date:** 2026-08-13  
 **Scope:** Full codebase (`src/*.cpp`, `src/*.hpp`)  
-**Tool:** Manual analysis (@claude-flow/cli coverage-gaps: no coverage data)
+**Tool:** Manual analysis + Google Test
 
 ---
 
@@ -15,8 +15,42 @@
 | Testable (pure) | 4 (22%) |
 | Testable (with state) | 3 (17%) |
 | Not testable (Hyprland deps) | 11 (61%) |
-| Current Tests | 0 |
+| Current Tests | 23 ✅ |
 | Target Coverage | 100% of testable functions |
+
+---
+
+## Test Infrastructure (NEW)
+
+### Build & Run Tests
+
+```bash
+# Build tests
+cmake -B build-tests -DBUILD_TESTS=ON
+cmake --build build-tests -j$(nproc)
+
+# Run all tests
+./build-tests/tests/focusZ-tests
+
+# Run specific test suite
+./build-tests/tests/focusZ-tests --gtest_filter='RandSeedTest.*'
+
+# Or use the test runner script
+./run-tests.sh
+```
+
+### Test Files
+
+- `tests/test_depth_focus.cpp` — 23 unit tests for pure functions
+- `tests/CMakeLists.txt` — Google Test build configuration
+- `.claude/agents/hyprland-tester.md` — Custom tester agent
+
+### CI Integration
+
+Unit tests run automatically in CI via `.github/workflows/build.yml`:
+- Builds plugin and tests
+- Runs all 23 unit tests
+- Reports results in GitHub Actions summary
 
 ---
 
