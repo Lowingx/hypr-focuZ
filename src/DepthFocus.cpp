@@ -145,6 +145,15 @@ void CDepthFocusManager::rebuildStack() {
         return;
     }
 
+    // Snapshot old stack for identity check — skip full re-apply if nothing changed.
+    std::vector<uintptr_t> oldAddrs;
+    oldAddrs.reserve(m_zStack.size());
+    for (const auto& ref : m_zStack) {
+        auto w = ref.lock();
+        if (valid(w))
+            oldAddrs.push_back((uintptr_t)w.get());
+    }
+
     const auto& windows = Desktop::windowState()->windows();
     const auto focused  = Desktop::focusState()->window();
 
@@ -180,6 +189,22 @@ void CDepthFocusManager::rebuildStack() {
     // hard cap only guards pathological workspaces.
     if ((int)next.size() > focusz::constants::kMaxWindows)
         next.resize(focusz::constants::kMaxWindows);
+
+    // Identity check: if the new stack has the same windows in the same order,
+    // skip the full re-apply (saves ~1ms on workspace refocus with same windows).
+    if (next.size() == oldAddrs.size()) {
+        bool identical = true;
+        for (size_t i = 0; i < next.size(); i++) {
+            if ((uintptr_t)next[i].get() != oldAddrs[i]) {
+                identical = false;
+                break;
+            }
+        }
+        if (identical) {
+            DebugLog::log("rebuildStack exit (identical — skipped)");
+            return;
+        }
+    }
 
     m_zStack.clear();
     for (auto& w : next)
@@ -272,12 +297,13 @@ void CDepthFocusManager::onWindowClose(PHLWINDOW pWindow) {
         return;
 
     bool found = false;
-    for (auto it = m_zStack.begin(); it != m_zStack.end();) {
-        if (it->lock() == pWindow) {
-            it = m_zStack.erase(it);
+    for (size_t i = 0; i < m_zStack.size(); ) {
+        if (m_zStack[i].lock() == pWindow) {
+            m_zStack[i] = std::move(m_zStack.back());
+            m_zStack.pop_back();
             found = true;
         } else {
-            ++it;
+            ++i;
         }
     }
 
@@ -299,12 +325,14 @@ void CDepthFocusManager::onWindowClose(PHLWINDOW pWindow) {
 }
 
 void CDepthFocusManager::promoteWindow(PHLWINDOW pWindow) {
-    // Remove from current position if it exists
-    for (auto it = m_zStack.begin(); it != m_zStack.end();) {
-        if (it->lock() == pWindow)
-            it = m_zStack.erase(it);
-        else
-            ++it;
+    // Remove from current position if it exists — O(1) swap+pop instead of O(n) shift.
+    for (size_t i = 0; i < m_zStack.size(); ) {
+        if (m_zStack[i].lock() == pWindow) {
+            m_zStack[i] = std::move(m_zStack.back());
+            m_zStack.pop_back();
+        } else {
+            ++i;
+        }
     }
 
     // Insert at front (Layer 0). Like rebuildStack, the deck is not truncated to
@@ -554,6 +582,13 @@ void CDepthFocusManager::layoutStack() {
     const double PEEK_MIN    = cfg().peekMin->value();
     const double PEEK_MAX    = cfg().peekMax->value();
 
+    // Precompute per-layer scales once (avoids repeated config reads in the hot loop).
+    const int    maxLayers = std::max<int>(1, cfg().maxLayers->value());
+    const size_t n         = m_zStack.size();
+    std::vector<double> scales(n);
+    for (size_t i = 0; i < n; i++)
+        scales[i] = getTransformForLayer(std::min<int>((int)i, maxLayers - 1)).scale;
+
     CBox base = anchor->logicalBoxMinusReserved();
     base      = CBox{base.x + focusz::constants::kWorkareaMargin,
                      base.y + focusz::constants::kWorkareaMargin,
@@ -586,7 +621,7 @@ void CDepthFocusManager::layoutStack() {
             continue;
         }
 
-        const double s  = getTransformForLayer((int)i).scale;
+        const double s  = scales[i];
         const double cw = frontBox.w * s;
         const double ch = frontBox.h * s;
 
