@@ -172,36 +172,45 @@ jobs:
           # Decode changelog
           CHANGELOG="${{ needs.pre-release.outputs.changelog }}"
           CHANGELOG_DECODED=$(echo "$CHANGELOG" | sed 's/%0A/\n/g' | sed 's/%25/%/g')
-          
-          # Create release with changelog
+
+          # Build release notes file to avoid YAML multiline quoting issues
+          cat > /tmp/release-notes.md << 'NOTES_EOF'
+          ## Changes
+
+          NOTES_EOF
+          echo "$CHANGELOG_DECODED" >> /tmp/release-notes.md
+          cat >> /tmp/release-notes.md << 'NOTES_EOF'
+
+          ## Installation
+
+          Download `libfocusZ.so` and place it in your Hyprland plugin directory.
+
+          ```bash
+          # Copy to plugin directory
+          cp libfocusZ.so ~/.local/share/hyprland/plugins/
+
+          # Add to hyprland.conf
+          plugin = ~/.local/share/hyprland/plugins/libfocusZ.so
+          ```
+
+          ## Hyprland Compatibility
+
+          NOTES_EOF
+          echo "Built against Hyprland ${{ env.HYPRLAND_VERSION }}. ABI-locked to this version." >> /tmp/release-notes.md
+          cat >> /tmp/release-notes.md << 'NOTES_EOF'
+
+          ## Checksums
+
+          ```
+          NOTES_EOF
+          cat SHA256SUMS >> /tmp/release-notes.md
+          echo '```' >> /tmp/release-notes.md
+
+          # Create release with notes file
           gh release create "$GITHUB_REF_NAME" \
             libfocusZ.so SHA256SUMS \
             --title "focusZ $GITHUB_REF_NAME" \
-            --notes "## Changes
-
-${CHANGELOG_DECODED}
-
-## Installation
-
-Download \`libfocusZ.so\` and place it in your Hyprland plugin directory.
-
-\`\`\`bash
-# Copy to plugin directory
-cp libfocusZ.so ~/.local/share/hyprland/plugins/
-
-# Add to hyprland.conf
-plugin = ~/.local/share/hyprland/plugins/libfocusZ.so
-\`\`\`
-
-## Hyprland Compatibility
-
-Built against Hyprland ${{ env.HYPRLAND_VERSION }}. ABI-locked to this version.
-
-## Checksums
-
-\`\`\`
-$(cat SHA256SUMS)
-\`\`\`"
+            --notes-file /tmp/release-notes.md
 
       - name: Verify release
         run: |
