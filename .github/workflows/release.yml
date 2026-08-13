@@ -90,6 +90,33 @@ jobs:
             echo "Got: $INSTALLED"
           fi
 
+      - name: Check for render-path violations
+        run: |
+          echo "## Render Path Check" >> $GITHUB_STEP_SUMMARY
+          VIOLATIONS=$(grep -rn "addPassElement\|IWindowTransformer" src/ 2>/dev/null | grep -v "//\|DISABLED\|dead code" || true)
+          if [ -n "$VIOLATIONS" ]; then
+            echo "❌ Render path violations found:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$VIOLATIONS" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            exit 1
+          else
+            echo "✅ No render path violations" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Security scan (check for dangerous functions)
+        run: |
+          echo "## Security Scan" >> $GITHUB_STEP_SUMMARY
+          DANGEROUS=$(grep -rn "system\|popen\|exec\|strcpy\|sprintf" src/ 2>/dev/null | grep -v "//" || true)
+          if [ -n "$DANGEROUS" ]; then
+            echo "⚠️ Potential dangerous functions found:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$DANGEROUS" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ No dangerous functions detected" >> $GITHUB_STEP_SUMMARY
+          fi
+
       - name: Bug check (build with -Werror)
         run: make check
 
