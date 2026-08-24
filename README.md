@@ -2,6 +2,8 @@
 
 [![build](https://github.com/Lowingx/hypr-focuZ/actions/workflows/build.yml/badge.svg)](https://github.com/Lowingx/hypr-focuZ/actions/workflows/build.yml)
 
+![focusZ demo — windows stacking as depth cards](assets/demo.gif)
+
 A Hyprland plugin that gives windows real **Z-axis depth**: the focused window sits
 on top at full size, and background windows are **stacked behind it as overlapping
 cards** that recede with reduced scale, opacity, and a depth-varying shadow.
