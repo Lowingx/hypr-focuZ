@@ -1,0 +1,5 @@
+build/
+.prowl/
+.mcp.json
+.claude/
+compile_commands.json
