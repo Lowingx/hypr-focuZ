@@ -6,7 +6,7 @@
 
 A Hyprland plugin that gives windows real **Z-axis depth**: the focused window sits
 on top at full size, and background windows are **stacked behind it as overlapping
-cards** that recede with reduced scale, opacity, and a depth-varying shadow.
+cards** that recede with reduced scale and opacity.
 
 **Works on any Hyprland 0.56.2 setup** — not tied to any specific distro or config.
 
@@ -23,12 +23,12 @@ scale, translucency, and blur. All workspace windows join the deck; those beyond
 `max_layers` floor at 0.22 scale / 0.05 opacity as dim ghosts, so nothing ever
 snaps back to 100% behind the deck.
 
-| Layer | Scale | Opacity | Shadow |
-|-------|-------|---------|--------|
-| 0 (focused) | 1.00 | 1.0 | — (native) |
-| 1 (behind)  | 0.70 | 0.85 | Medium |
-| 2 (behind)  | 0.50 | 0.70 | Min |
-| 3+          | extrapolated (−0.13/layer) | extrapolated (−0.18/layer) | Min |
+| Layer | Scale | Opacity |
+|-------|-------|---------|
+| 0 (focused) | 1.00 | 1.0 |
+| 1 (behind)  | 0.70 | 0.85 |
+| 2 (behind)  | 0.50 | 0.70 |
+| 3+          | extrapolated toward the floor (0.22 / 0.05) across `max_layers` |
 
 Blur is **free**: with global `decoration:blur:enabled` on (default), the
 translucent background cards blur whatever is behind them — wallpaper, layers,
@@ -102,9 +102,6 @@ plugin {
         layer_1_opacity = 0.85    # 0.0 - 1.0
         layer_2_opacity = 0.70    # 0.0 - 1.0
 
-        # Animation speed for depth transitions (higher = snappier)
-        animation_speed = 8.0     # 0.0 - 50.0
-
         # Front card size as a fraction of the workarea (0.3 - 1.0)
         card_front_scale = 0.72
 
@@ -120,49 +117,16 @@ plugin {
         card_peek_min = 24      # px (0 - 200)
         card_peek_max = 80      # px (0 - 400)
 
-        # Scale windows toward monitor center (true) or top-left (false)
-        center_scale = true
-
         # Write a debug log + heartbeat to ~/.local/share/hyprland/focusz-debug.log
         debug = false
     }
 }
 ```
 
-### Reserved config (registered but inert)
-
-These keys are registered in the plugin and can be set in config, but they
-currently have **no visual effect**. They are reserved for future features:
-
-```hyprlang
-plugin {
-    focusZ {
-        # Wallpaper canvas (M4.1 — render-path-safe revival needed)
-        wallpaper_dim = 0.5         # 0.0 - 1.0
-        wallpaper_zoom = 0.88       # 0.1 - 1.0
-        canvas_zoom_floor = 0.55    # 0.1 - 1.0
-        canvas_dim_floor = 0.15     # 0.0 - 1.0
-        canvas_plate_alpha = 0.15   # 0.0 - 1.0
-        canvas_plate_alpha_max = 0.30  # 0.0 - 1.0
-        canvas_shadow_boost = 1.5   # 0.0 - 5.0
-        canvas_plate = true
-        canvas_plate_frost = 0.55   # 0.0 - 1.0
-
-        # Card borders (M4.4 — render-path-safe revival needed)
-        card_border = true
-        card_border_width = 2       # px (0 - 10)
-        card_border_color = 0x80ffffff  # 0xAARRGGBB
-
-        # Card frost (M4.2 — render-path-safe revival needed)
-        card_frost = false
-        card_frost_strength = 0.4   # 0.0 - 1.0
-
-        # Per-layer blur (API limitation — reserved, inert)
-        layer_1_blur = true
-        layer_2_blur = true
-    }
-}
-```
+Every key above is read at runtime. Keys that only exist to be set (canvas,
+frost, borders, per-layer blur, animation speed, center scale) were removed
+rather than shipped inert — see [Future Features](#future-features) for what is
+planned next.
 
 Config changes need a `hyprctl reload` (or session restart) to take effect.
 
@@ -180,7 +144,7 @@ bind = ALT, Tab, focusZ:cycle
 
 ## How It Works
 
-The plugin hooks into four Hyprland systems:
+The plugin hooks into three Hyprland systems:
 
 1. **EventBus listeners** — `window.active`, `window.open`, `window.close` and
    `window.destroy` events maintain an ordered Z-stack of windows. On focus change
@@ -202,13 +166,16 @@ The plugin hooks into four Hyprland systems:
    the plugin floated are returned to tiling on restore; user-floated windows are
    left alone. Fullscreen windows are skipped.
 
-4. **Depth shadow decoration** — Every deck card receives a
-   `CDepthShadowDecoration` (`IHyprWindowDecoration` subclass) whose shadow
-   range/offset/alpha form a monotonic drop ladder. Both are removed when the
-   window leaves the stack.
+4. **Depth falloff** — Every card's scale/opacity comes from
+   `getTransformForLayer()`: layers 1 and 2 use their configured values, deeper
+   ones interpolate toward a floor (0.22 scale / 0.05 opacity) across
+   `max_layers`, so no card ever snaps back to full size behind the deck.
 
-Depth lookups in the render path are O(1) (cached per window), and windows whose
-depth didn't change are never re-damaged, so the per-frame cost is flat.
+Nothing is drawn from a render hook, a decoration, or a window transformer: the
+plugin is layout + opacity only, which is what keeps it from crashing the
+compositor (see [ADR-001](docs/adr/ADR-001-render-path-free-architecture.md)).
+Windows whose depth didn't change are never re-damaged, so the per-frame cost
+stays flat.
 
 ## Architecture
 
@@ -220,10 +187,6 @@ src/main.cpp            Plugin entry: PLUGIN_API_VERSION / PLUGIN_INIT / PLUGIN_
 src/DepthFocus.hpp/cpp  CDepthFocusManager — the core depth engine
                     Maintains Z-stack, computes per-layer transforms,
                     floats + positions the stack
-
-src/DepthShadow.hpp/cpp CDepthShadowDecoration — IHyprWindowDecoration subclass
-                    Draws depth-aware shadows (range/offset vary by layer)
-                    (DISABLED: no-op draw, not attached)
 
 src/DebugLog.cpp/hpp    Optional debug logger + main-thread heartbeat
                     ~/.local/share/hyprland/focusz-debug.log
