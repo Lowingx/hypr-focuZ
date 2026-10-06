@@ -11,13 +11,13 @@ echo "🧪 focusZ Test Runner"
 echo "===================="
 echo ""
 
-# Check if build directory exists
-if [ ! -d "$BUILD_DIR" ]; then
-    echo "📦 Building tests..."
-    cmake -B "$BUILD_DIR" -DBUILD_TESTS=ON
-    cmake --build "$BUILD_DIR" -j$(nproc)
-    echo ""
-fi
+# Build the tests every time — cmake is incremental, and a stale binary here
+# silently runs the previous suite (it once reported 23 tests from an old build
+# while the source had 18).
+echo "📦 Building tests..."
+cmake -B "$BUILD_DIR" -DBUILD_TESTS=ON
+cmake --build "$BUILD_DIR" -j"$(nproc)"
+echo ""
 
 # Run unit tests
 echo "🔬 Running unit tests..."
