@@ -39,7 +39,6 @@ static SP<CSignalListener> g_focusListener;
 static SP<CSignalListener> g_openListener;
 static SP<CSignalListener> g_closeListener;
 static SP<CSignalListener> g_destroyListener;
-static SP<CSignalListener> g_renderListener;
 
 // ---------------------------------------------------------
 // Required plugin API exports
@@ -88,29 +87,11 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     cfg().layer2Scale    = makeShared<Config::Values::CFloatValue>("plugin:focusZ:layer_2_scale", "scale of the second back card", 0.50F, Config::Values::SFloatValueOptions{.min = 0.1F, .max = 1.0F});
     cfg().layer1Opacity  = makeShared<Config::Values::CFloatValue>("plugin:focusZ:layer_1_opacity", "opacity of the first back card", 0.85F, Config::Values::SFloatValueOptions{.min = 0.0F, .max = 1.0F});
     cfg().layer2Opacity  = makeShared<Config::Values::CFloatValue>("plugin:focusZ:layer_2_opacity", "opacity of the second back card", 0.70F, Config::Values::SFloatValueOptions{.min = 0.0F, .max = 1.0F});
-    cfg().layer1Blur     = makeShared<Config::Values::CBoolValue>("plugin:focusZ:layer_1_blur", "blur for first back card", true);
-    cfg().layer2Blur     = makeShared<Config::Values::CBoolValue>("plugin:focusZ:layer_2_blur", "blur for second back card", true);
-    cfg().animationSpeed = makeShared<Config::Values::CFloatValue>("plugin:focusZ:animation_speed", "animation speed multiplier", 8.0F, Config::Values::SFloatValueOptions{.min = 0.0F, .max = 50.0F});
-    cfg().wallpaperDim   = makeShared<Config::Values::CFloatValue>("plugin:focusZ:wallpaper_dim", "wallpaper dim factor", 0.5F, Config::Values::SFloatValueOptions{.min = 0.0F, .max = 1.0F});
-    cfg().wallpaperZoom  = makeShared<Config::Values::CFloatValue>("plugin:focusZ:wallpaper_zoom", "wallpaper zoom factor", 0.88F, Config::Values::SFloatValueOptions{.min = 0.1F, .max = 1.0F});
-    cfg().canvasZoomFloor  = makeShared<Config::Values::CFloatValue>("plugin:focusZ:canvas_zoom_floor", "canvas zoom floor", 0.55F, Config::Values::SFloatValueOptions{.min = 0.1F, .max = 1.0F});
-    cfg().canvasDimFloor   = makeShared<Config::Values::CFloatValue>("plugin:focusZ:canvas_dim_floor", "canvas dim floor", 0.15F, Config::Values::SFloatValueOptions{.min = 0.0F, .max = 1.0F});
-    cfg().canvasPlateAlpha    = makeShared<Config::Values::CFloatValue>("plugin:focusZ:canvas_plate_alpha", "canvas plate alpha", 0.15F, Config::Values::SFloatValueOptions{.min = 0.0F, .max = 1.0F});
-    cfg().canvasPlateAlphaMax = makeShared<Config::Values::CFloatValue>("plugin:focusZ:canvas_plate_alpha_max", "canvas plate alpha max", 0.30F, Config::Values::SFloatValueOptions{.min = 0.0F, .max = 1.0F});
-    cfg().canvasShadowBoost   = makeShared<Config::Values::CFloatValue>("plugin:focusZ:canvas_shadow_boost", "canvas shadow boost", 1.5F, Config::Values::SFloatValueOptions{.min = 0.0F, .max = 5.0F});
-    cfg().canvasPlate   = makeShared<Config::Values::CBoolValue>("plugin:focusZ:canvas_plate", "draw frosted plate behind deck", true);
-    cfg().plateFrost    = makeShared<Config::Values::CFloatValue>("plugin:focusZ:canvas_plate_frost", "frost strength of the plate", 0.55F, Config::Values::SFloatValueOptions{.min = 0.0F, .max = 1.0F});
-    cfg().cardBorder    = makeShared<Config::Values::CBoolValue>("plugin:focusZ:card_border", "draw border around cards", true);
-    cfg().borderWidth   = makeShared<Config::Values::CIntValue>("plugin:focusZ:card_border_width", "card border width", 2, Config::Values::SIntValueOptions{.min = 0, .max = 10});
-    cfg().borderColor   = makeShared<Config::Values::CIntValue>("plugin:focusZ:card_border_color", "card border color (0xAARRGGBB)", 0x80ffffff);
     cfg().frontScale    = makeShared<Config::Values::CFloatValue>("plugin:focusZ:card_front_scale", "front card scale", 0.72F, Config::Values::SFloatValueOptions{.min = 0.3F, .max = 1.0F});
     cfg().edgeScatter   = makeShared<Config::Values::CBoolValue>("plugin:focusZ:card_edge_scatter", "scatter cards near edges", true);
     cfg().scatterReshuffle = makeShared<Config::Values::CBoolValue>("plugin:focusZ:card_scatter_reshuffle", "reshuffle positions on rebuild", true);
     cfg().peekMin       = makeShared<Config::Values::CFloatValue>("plugin:focusZ:card_peek_min", "minimum peek strip", 24.0F, Config::Values::SFloatValueOptions{.min = 0.0F, .max = 200.0F});
     cfg().peekMax       = makeShared<Config::Values::CFloatValue>("plugin:focusZ:card_peek_max", "maximum peek strip", 80.0F, Config::Values::SFloatValueOptions{.min = 0.0F, .max = 400.0F});
-    cfg().centerScale   = makeShared<Config::Values::CBoolValue>("plugin:focusZ:center_scale", "scale centered windows", true);
-    cfg().cardFrost     = makeShared<Config::Values::CBoolValue>("plugin:focusZ:card_frost", "frosted glass over back cards", false);
-    cfg().cardFrostStrength = makeShared<Config::Values::CFloatValue>("plugin:focusZ:card_frost_strength", "frost strength", 0.4F, Config::Values::SFloatValueOptions{.min = 0.0F, .max = 1.0F});
     cfg().debug         = makeShared<Config::Values::CBoolValue>("plugin:focusZ:debug", "enable debug logging", false);
 
     HyprlandAPI::addConfigValueV2(PHANDLE, cfg().enabled);
@@ -120,29 +101,11 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     HyprlandAPI::addConfigValueV2(PHANDLE, cfg().layer2Scale);
     HyprlandAPI::addConfigValueV2(PHANDLE, cfg().layer1Opacity);
     HyprlandAPI::addConfigValueV2(PHANDLE, cfg().layer2Opacity);
-    HyprlandAPI::addConfigValueV2(PHANDLE, cfg().layer1Blur);
-    HyprlandAPI::addConfigValueV2(PHANDLE, cfg().layer2Blur);
-    HyprlandAPI::addConfigValueV2(PHANDLE, cfg().animationSpeed);
-    HyprlandAPI::addConfigValueV2(PHANDLE, cfg().wallpaperDim);
-    HyprlandAPI::addConfigValueV2(PHANDLE, cfg().wallpaperZoom);
-    HyprlandAPI::addConfigValueV2(PHANDLE, cfg().canvasZoomFloor);
-    HyprlandAPI::addConfigValueV2(PHANDLE, cfg().canvasDimFloor);
-    HyprlandAPI::addConfigValueV2(PHANDLE, cfg().canvasPlateAlpha);
-    HyprlandAPI::addConfigValueV2(PHANDLE, cfg().canvasPlateAlphaMax);
-    HyprlandAPI::addConfigValueV2(PHANDLE, cfg().canvasShadowBoost);
-    HyprlandAPI::addConfigValueV2(PHANDLE, cfg().canvasPlate);
-    HyprlandAPI::addConfigValueV2(PHANDLE, cfg().plateFrost);
-    HyprlandAPI::addConfigValueV2(PHANDLE, cfg().cardBorder);
-    HyprlandAPI::addConfigValueV2(PHANDLE, cfg().borderWidth);
-    HyprlandAPI::addConfigValueV2(PHANDLE, cfg().borderColor);
     HyprlandAPI::addConfigValueV2(PHANDLE, cfg().frontScale);
     HyprlandAPI::addConfigValueV2(PHANDLE, cfg().edgeScatter);
     HyprlandAPI::addConfigValueV2(PHANDLE, cfg().scatterReshuffle);
     HyprlandAPI::addConfigValueV2(PHANDLE, cfg().peekMin);
     HyprlandAPI::addConfigValueV2(PHANDLE, cfg().peekMax);
-    HyprlandAPI::addConfigValueV2(PHANDLE, cfg().centerScale);
-    HyprlandAPI::addConfigValueV2(PHANDLE, cfg().cardFrost);
-    HyprlandAPI::addConfigValueV2(PHANDLE, cfg().cardFrostStrength);
     HyprlandAPI::addConfigValueV2(PHANDLE, cfg().debug);
 
     DebugLog::log("config registration done");
@@ -181,14 +144,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
                 g_pDepthFocusManager->onWindowClose(pw);
         });
 
-    // Render stage hook — draws canvas, card borders, and depth effects.
-    g_renderListener = Event::bus()->m_events.render.stage.listen(
-        [](eRenderStage stage) {
-            if (g_pDepthFocusManager)
-                g_pDepthFocusManager->onRenderStage(stage);
-        });
-
-    DebugLog::log("focusZ listeners + render registered");
+    DebugLog::log("focusZ listeners registered");
 
     // --- Register dispatcher for keybind cycling ---
     HyprlandAPI::addDispatcherV2(PHANDLE, "focusZ:cycle",
@@ -214,7 +170,6 @@ APICALL EXPORT void PLUGIN_EXIT() {
     g_openListener.reset();
     g_closeListener.reset();
     g_destroyListener.reset();
-    g_renderListener.reset();
 
     g_pDepthFocusManager.reset();
 

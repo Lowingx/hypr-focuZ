@@ -1,5 +1,4 @@
 #include "DepthFocus.hpp"
-#include "DepthShadow.hpp"
 #include "DebugLog.hpp"
 #include <hyprland/src/desktop/Workspace.hpp>
 #include <hyprland/src/desktop/DesktopTypes.hpp>
@@ -24,19 +23,6 @@ namespace focusz::constants {
 
 static std::string winStr(PHLWINDOW pWindow) {
     return pWindow ? "0x" + std::to_string((uintptr_t)pWindow.get()) : "(null)";
-}
-
-// Attach/update/remove the scale transformer for a window.
-//
-// DISABLED: the transformer's transform() runs inside Hyprland's renderWindow
-// path and SEGVs on Hyprland v0.56.2 (see hyprlandCrashReport*.txt — the
-// backtrace lands in libfocusZ.so during renderWindow). We never attach it
-// now; the depth scale is conveyed purely by layoutStack()'s per-card geometry
-// (back cards get smaller boxes) plus per-window opacity, both safe. This keeps
-// the plugin render-path-free so it can no longer crash the compositor.
-static void setWindowScale(PHLWINDOW pWindow, float /*scale*/) {
-    if (!valid(pWindow))
-        return;
 }
 
 // Sync the debug logger with the plugin:focusZ:debug config value (runtime toggle).
@@ -95,32 +81,6 @@ SLayerTransform CDepthFocusManager::getTransformForLayer(int depth) const {
         t.opacity = baseOpacity + (floorOpacity - baseOpacity) * frac;
     }
     return t;
-}
-
-float CDepthFocusManager::getDeckFactor() const {
-    // Deck "fullness": 0 with just the focused window, 1 once the stack reaches
-    // max_layers. Each window past the first adds an equal share.
-    const size_t n       = m_zStack.size();
-    const int    maxL    = std::max<int>(1, cfg().maxLayers->value());
-    const size_t denom   = std::max<size_t>(1, (size_t)maxL - 1);
-    return std::clamp((float)(n - 1) / (float)denom, 0.0f, 1.0f);
-}
-
-int CDepthFocusManager::getLayerDepth(PHLWINDOW pWindow) const {
-    if (!valid(pWindow))
-        return -1;
-
-    // O(1) hot path (render hook). The cache is rebuilt on every stack mutation.
-    auto it = m_depthCache.find((uintptr_t)pWindow.get());
-    if (it != m_depthCache.end())
-        return it->second;
-
-    // Fallback scan: covers windows mapped between events.
-    for (size_t i = 0; i < m_zStack.size(); i++) {
-        if (m_zStack[i].lock() == pWindow)
-            return (int)i;
-    }
-    return -1;
 }
 
 void CDepthFocusManager::init() {
@@ -404,22 +364,6 @@ void CDepthFocusManager::applyAllDepthTransforms() {
     // Arrange the stack as overlapping floating cards (focused on top).
     layoutStack();
 
-    // Propagate the deck factor to every depth shadow: it changes when windows
-    // open/close even for cards whose layer depth stays the same.
-    const float deckFactor = getDeckFactor();
-    for (auto& [addr, st] : m_applied) {
-        auto w = st.window.lock();
-        if (!valid(w) || !st.decorated)
-            continue;
-        for (const auto& deco : w->m_windowDecorations) {
-            auto* shadowDeco = dynamic_cast<CDepthShadowDecoration*>(deco.get());
-            if (shadowDeco) {
-                shadowDeco->setDeckFactor(deckFactor);
-                break;
-            }
-        }
-    }
-
     DebugLog::log("applyAllDepthTransforms exit (applied=" + std::to_string(m_applied.size()) +
                   " stack=" + std::to_string(m_zStack.size()) + ")");
 }
@@ -448,14 +392,10 @@ void CDepthFocusManager::applyDepthToWindow(PHLWINDOW pWindow, int depth) {
     auto& alphaVar = pWindow->alpha(Desktop::View::WINDOW_ALPHA_ACTIVE);
     *alphaVar = transform.opacity;
 
-    const bool stacking = cfg().stacking->value();
-    setWindowScale(pWindow, stacking ? 1.0f : transform.scale);
-
-    // Depth shadow decoration is a no-op placeholder (its draw() is empty) and
-    // still runs on Hyprland's renderWindow path; we don't attach it anymore so
-    // the plugin stays fully render-path-free and cannot crash the compositor.
-    state.decorated = true;
-
+    // Depth scale lives in layoutStack()'s per-card geometry (back cards get
+    // smaller boxes); opacity above is the only per-window render property we
+    // touch. No decoration, transformer, or render hook is attached — the
+    // plugin stays render-path-free (ADR-001).
     g_pHyprRenderer->damageWindow(pWindow, true);
 }
 
@@ -652,20 +592,8 @@ void CDepthFocusManager::restoreWindow(PHLWINDOW pWindow) {
     if (!valid(pWindow))
         return;
 
-    // Drop the depth shadow decoration if present.
-    for (const auto& deco : pWindow->m_windowDecorations) {
-        auto* shadowDeco = dynamic_cast<CDepthShadowDecoration*>(deco.get());
-        if (shadowDeco) {
-            HyprlandAPI::removeWindowDecoration(PHANDLE, shadowDeco);
-            break;
-        }
-    }
-
     // Reset alpha to full. Geometry is untouched: scaling was render-only.
     *pWindow->alpha(Desktop::View::WINDOW_ALPHA_ACTIVE) = 1.0f;
-
-    // Drop any scale transformer: the window leaves the transformed path.
-    setWindowScale(pWindow, 1.0f);
 
     // Return a window we floated back to tiling (if it wasn't floating before).
     if (pWindow->m_isMapped) {
@@ -680,6 +608,9 @@ void CDepthFocusManager::restoreWindow(PHLWINDOW pWindow) {
 }
 
 void CDepthFocusManager::refreshDepthCache() {
+    // Membership map: which windows are currently in the stack (see the
+    // eviction pass in applyAllDepthTransforms). Depth values are clamped the
+    // same way the apply pass clamps them so the two never disagree.
     const int maxLayers = std::max<int>(1, cfg().maxLayers->value());
     m_depthCache.clear();
     for (size_t i = 0; i < m_zStack.size(); i++) {
@@ -687,11 +618,4 @@ void CDepthFocusManager::refreshDepthCache() {
         if (valid(w))
             m_depthCache[(uintptr_t)w.get()] = std::min<int>((int)i, maxLayers - 1);
     }
-}
-
-void CDepthFocusManager::onRenderStage(eRenderStage /*stage*/) {
-    // Render hook disabled: drawCardBorders() called g_pHyprRenderer->addPassElement()
-    // during RENDER_POST_WINDOWS, which SEGVs inside Hyprland's addPassElement on
-    // v0.56.2 (see hyprlandCrashReport*.txt). The deck is done with safe
-    // layout + opacity only, so nothing needs to run here.
 }

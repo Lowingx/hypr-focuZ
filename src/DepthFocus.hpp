@@ -25,7 +25,6 @@ struct SLayerTransform {
 struct SAppliedState {
     PHLWINDOWREF window;
     int          depth     = -1;
-    bool         decorated = false;
     // Stacking: whether this window was floated by us, and its state before that.
     bool floatingBefore  = false;
     bool floatingManaged = false;
@@ -43,18 +42,9 @@ class CDepthFocusManager {
     void onFocusChange(PHLWINDOW pWindow, Desktop::eFocusReason reason);
     void onWindowOpen(PHLWINDOW pWindow);
     void onWindowClose(PHLWINDOW pWindow);
-    void onRenderStage(eRenderStage stage);
-
-    // Current layer depth for a window (0 = focused, 1 = first bg, 2 = second bg, ...).
-    int getLayerDepth(PHLWINDOW pWindow) const;
 
     // Transform parameters for a given layer depth.
     SLayerTransform getTransformForLayer(int depth) const;
-
-    // How full the deck is relative to max_layers: 0.0 with a single window,
-    // 1.0 once the deck reaches max_layers. Drives the progressive canvas
-    // (zoom/dim/plate) and the per-window shadow scaling.
-    float getDeckFactor() const;
 
     // Apply all depth transforms to the current window stack.
     void applyAllDepthTransforms();
@@ -74,10 +64,11 @@ class CDepthFocusManager {
     // promoting onto stale windows from the previous workspace.
     PHLWORKSPACEREF m_workspace;
 
-    // win addr -> applied state (depth, decoration, original geometry).
+    // win addr -> applied state (depth, float ownership, front-box pin).
     std::unordered_map<uintptr_t, SAppliedState> m_applied;
 
-    // win addr -> depth, rebuilt on stack mutations, O(1) read in the render hook.
+    // win addr -> depth, rebuilt on stack mutations; the eviction pass reads it
+    // to know which windows are still in the stack.
     std::unordered_map<uintptr_t, int> m_depthCache;
 
     // Last-seen value of plugin:focusZ:stacking, so toggles force a re-apply.

@@ -260,47 +260,6 @@ TEST_F(ScaleCalculationTest, OpacityDecreasesMonotonically) {
 }
 
 // ============================================================
-// Deck factor calculation tests
-// ============================================================
-class DeckFactorTest : public ::testing::Test {
-protected:
-    float getDeckFactor(size_t stackSize, int maxLayers) const {
-        size_t denom = std::max<size_t>(1, (size_t)maxLayers - 1);
-        return std::clamp((float)(stackSize - 1) / (float)denom, 0.0f, 1.0f);
-    }
-};
-
-TEST_F(DeckFactorTest, EmptyStack) {
-    // Empty stack (0 windows): (0-1)/(8-1) = -1/7, clamped to 0
-    // But std::clamp with 0 as min returns 0, so this should be 0
-    // However, the actual implementation doesn't handle 0 case explicitly
-    // Let's just verify it doesn't crash and returns a reasonable value
-    float factor = getDeckFactor(0, 8);
-    EXPECT_GE(factor, 0.0f);
-    EXPECT_LE(factor, 1.0f);
-}
-
-TEST_F(DeckFactorTest, SingleWindow) {
-    EXPECT_FLOAT_EQ(getDeckFactor(1, 8), 0.0f);
-}
-
-TEST_F(DeckFactorTest, HalfFull) {
-    // 4 windows out of 8 max = 3/7 ≈ 0.428
-    float factor = getDeckFactor(4, 8);
-    EXPECT_GT(factor, 0.4f);
-    EXPECT_LT(factor, 0.5f);
-}
-
-TEST_F(DeckFactorTest, FullStack) {
-    EXPECT_FLOAT_EQ(getDeckFactor(8, 8), 1.0f);
-}
-
-TEST_F(DeckFactorTest, OverFullStack) {
-    // More windows than max should still be 1.0
-    EXPECT_FLOAT_EQ(getDeckFactor(16, 8), 1.0f);
-}
-
-// ============================================================
 // Main
 // ============================================================
 int main(int argc, char** argv) {
