@@ -131,6 +131,7 @@ class depthdeck_t : public wf::plugin_interface_t
         card_scatter_reshuffle.set_callback(refresh);
         card_peek_min.set_callback(refresh);
         card_peek_max.set_callback(refresh);
+        maximized_front_scale.set_callback(refresh);
 
         for (auto output : wf::get_core().output_layout->get_outputs())
         {
@@ -163,6 +164,7 @@ class depthdeck_t : public wf::plugin_interface_t
         card_scatter_reshuffle.set_callback(nullptr);
         card_peek_min.set_callback(nullptr);
         card_peek_max.set_callback(nullptr);
+        maximized_front_scale.set_callback(nullptr);
 
         for (auto& [ptr, card] : cards)
         {
@@ -230,6 +232,7 @@ class depthdeck_t : public wf::plugin_interface_t
     wf::option_wrapper_t<double> card_peek_min{"depthdeck/card_peek_min"};
     wf::option_wrapper_t<double> card_peek_max{"depthdeck/card_peek_max"};
     wf::option_wrapper_t<int> animation_ms{"depthdeck/animation_ms"};
+    wf::option_wrapper_t<double> maximized_front_scale{"depthdeck/maximized_front_scale"};
 
     // FocusZ had no animation — this is the Wayfire-side polish: values
     // glide instead of snapping. Same self-sustaining loop as scale.cpp:
@@ -492,6 +495,29 @@ class depthdeck_t : public wf::plugin_interface_t
             have_front  = true;
         }
 
+        // Maximised front: an all-covering card would hide every back card
+        // (peeks are measured *beyond* the front box), so frame it slightly
+        // smaller and let the stack show in the ring around it — the depth
+        // perspective for an all-maximised desktop. Only with scatter on:
+        // without it the back cards stay centred behind the front anyway.
+        float front_scale = 1.0f;
+        if (scatter && have_front && (deck.size() > 1) && (maximized_front_scale < 1.0))
+        {
+            const wf::geometry_t work = output->workarea->get_workarea();
+            if ((front_box.width >= work.width * 0.98) &&
+                (front_box.height >= work.height * 0.98))
+            {
+                front_scale = (float)maximized_front_scale;
+            }
+        }
+
+        // The front's visual box (scale is about the view's center).
+        wf::geometry_t front_visual = front_box;
+        front_visual.width  = (int)(front_box.width * front_scale);
+        front_visual.height = (int)(front_box.height * front_scale);
+        front_visual.x      = front_box.x + (front_box.width - front_visual.width) / 2;
+        front_visual.y      = front_box.y + (front_box.height - front_visual.height) / 2;
+
         for (size_t i = 0; i < deck.size(); i++)
         {
             auto it = cards.find(deck[i]);
@@ -503,12 +529,17 @@ class depthdeck_t : public wf::plugin_interface_t
             // Depth is clamped to max_layers: everything deeper shares the
             // deepest treatment (the transform floors at 0.22/0.05 anyway).
             auto t    = transform_for_depth(std::min<int>(i, max_depth));
+            if (i == 0)
+            {
+                t.scale = front_scale;
+            }
+
             t.tx      = 0.0f;
             t.ty      = 0.0f;
 
             if (scatter && have_front && (i > 0))
             {
-                auto off = scatter_offset(output, it->second.get(), front_box,
+                auto off = scatter_offset(output, it->second.get(), front_visual,
                     (int)i, t.scale);
                 t.tx = off.x;
                 t.ty = off.y;

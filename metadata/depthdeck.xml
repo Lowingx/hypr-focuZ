@@ -87,5 +87,13 @@
 			<max>2000</max>
 			<precision>10</precision>
 		</option>
+		<option name="maximized_front_scale" type="double">
+			<_short>Scale of a maximised front card</_short>
+			<_long>When the focused window covers the workarea and other cards are in the deck, the front is rendered at this scale so the back cards peek out around it (depth perspective). 1.00 keeps the front full size, which hides every back card.</_long>
+			<default>0.90</default>
+			<min>0.50</min>
+			<max>1.00</max>
+			<precision>0.01</precision>
+		</option>
 	</plugin>
 </wayfire>

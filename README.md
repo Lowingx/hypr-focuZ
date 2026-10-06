@@ -35,7 +35,7 @@ Constantes do focusZ preservadas em `src/depthdeck.cpp`:
 3. ✅ **Animação** — um `wf::animation::duration_t` por carta (duração = `animation_ms`, 0 = snap) com quatro `timed_transition_t` (scale/alpha/tx/ty), no padrão do `plugins/scale`: `pre_hook` grava os canais no transformer, `post_hook` mantém `schedule_redraw()` enquanto `running()`; retarget a partir do valor visual atual (voo no meio é interpolado). Loop para sozinho — 0 ticks de CPU em repouso.
 4. ✅ **Blur/frost do fundo** — plugin `blur` na lista de plugins (matcher padrão casa todo toplevel); densidade por profundidade via alpha. Nesta fase também: **todas** as opções do depthdeck ganharam `set_callback` → relayout em runtime (WCM/`wayfire/set-config-options`), sem esperar o próximo promote/unmap.
 5. Guard de flick + atalhos de cycling + integração WCM.
-6. Paridade fina com focusZ (janelas maximizadas, workarea reservada, reshuffle fino).
+6. Paridade fina com focusZ — ✅ **janelas maximizadas** (novo, o focusZ não tratava): com a frente cobrindo a workarea todo *peek* é ≤ 0 e a frente escondia o deck inteiro; agora a frente renderiza em `maximized_front_scale` (padrão 0,90, só com scatter e deck > 1), abrindo o anel onde os cards espiam — a perspectiva de profundidade para desktop cheio de maximizadas. Pendente: workarea reservada, reshuffle fino.
 
 ## Build & run
 
