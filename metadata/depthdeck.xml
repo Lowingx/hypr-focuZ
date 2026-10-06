@@ -48,5 +48,36 @@
 			<min>1</min>
 			<max>16</max>
 		</option>
+		<option name="scatter" type="bool">
+			<_short>Scatter back cards</_short>
+			<_long>Offset the cards behind the front so each keeps a visible peek strip. Visual only — windows are never moved.</_long>
+			<default>true</default>
+		</option>
+		<option name="card_edge_scatter" type="bool">
+			<_short>Edge-bias scatter</_short>
+			<_long>Place back cards near a random workarea edge instead of at a random angle around the focused card.</_long>
+			<default>true</default>
+		</option>
+		<option name="card_scatter_reshuffle" type="bool">
+			<_short>Reshuffle on rebuild</_short>
+			<_long>Give back cards fresh positions whenever a card joins or leaves the deck.</_long>
+			<default>true</default>
+		</option>
+		<option name="card_peek_min" type="double">
+			<_short>Minimum peek strip</_short>
+			<_long>Smallest visible strip (px) a back card must keep outside the front card.</_long>
+			<default>24</default>
+			<min>0</min>
+			<max>200</max>
+			<precision>1</precision>
+		</option>
+		<option name="card_peek_max" type="double">
+			<_short>Maximum peek strip</_short>
+			<_long>Upper bound (px) for the radius used by the around-focused scatter mode.</_long>
+			<default>80</default>
+			<min>0</min>
+			<max>400</max>
+			<precision>1</precision>
+		</option>
 	</plugin>
 </wayfire>

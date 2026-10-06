@@ -19,22 +19,23 @@ portando o algoritmo do focusZ como ele é, não uma reinvenção.
 | focusZ | depthdeck |
 |---|---|
 | `rebuildStack` / `promoteWindow` | deck por output: `decks[output]` (frente primeiro) + `view_activated_state_signal` → `promote()` |
-| `getTransformForLayer(depth)` | `transform_for_depth(depth)` — **idêntico**: camada 1 (0.70/0.85), camada 2 (0.50/0.70), interpolação linear até o piso `kFloorScale=0.22` / `kFloorOpacity=0.05` espalhada em `max_layers` níveis; profundidade clampada em `max_layers` |
+| `getTransformForLayer(depth)` | `transform_for_depth(depth)` — **idêntico**: camada 1 (0.70/0.85), camada 2 (0.50/0.70), interpolação linear até o piso `kFloorScale=0.22` / `kFloorOpacity=0.05` espalhada em `max_layers` níveis; profundidade clampada em `max_layers - 1` (índice, como o focusZ) |
 | resize do cliente | `view_2d_transformer_t` (scale/alpha), dano propagado com `begin/end_transform_update` |
-| `clampToWorkarea` + scatter | *fase 2* (`translation_x/y` do próprio transformer) |
+| `scatterOnEdges` / `scatterAroundFocused` / `clampToWorkarea` | `scatter_offset()` — **port1:1** (splitmix64, modo borda com até 64 rolagens garantindo `peek ≥ card_peek_min`, clamp na workarea) aplicado como `translation_x/y` **visual** em vez de mover o cliente |
 | blur do fundo | *fase 3* (`plugins/blur`: `blur_node_t`, `view_matcher_t`) |
 | guard de flick | *fase 4* (não crítico: Wayfire não foca no hover por padrão) |
 
 Constantes do focusZ preservadas em `src/depthdeck.cpp`:
-`kFloorScale = 0.22f`, `kFloorOpacity = 0.05f`.
+`kFloorScale = 0.22f`, `kFloorOpacity = 0.05f`, `kEdgeInset = 16.0`.
 
 ## Fases
 
-1. ✅ **Esqueleto**: deck + escala/opacidade por profundidade (este commit).
-2. Animação (`wf::animation::simple_animation_t`) + scatter de posição.
-3. Blur/frost do fundo por profundidade.
-4. Guard de flick + atalhos de cycling + integração WCM.
-5. Paridade fina com focusZ (workarea, reshuffle, janelas maximizadas).
+1. ✅ **Esqueleto**: deck + escala/opacidade por profundidade.
+2. ✅ **Scatter de posição** (port do focusZ: borda/ao-redor, faixa de peek, reshuffle por nonce, clamp na workarea) via `translation_x/y` do transformer.
+3. Animação (`wf::animation::simple_animation_t`) para escala/alpha/translação.
+4. Blur/frost do fundo por profundidade.
+5. Guard de flick + atalhos de cycling + integração WCM.
+6. Paridade fina com focusZ (janelas maximizadas, workarea reservada, reshuffle fino).
 
 ## Build & run
 

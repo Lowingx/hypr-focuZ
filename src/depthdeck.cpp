@@ -9,6 +9,13 @@
  *   - depth transform: layer 1 / layer 2 scale+opacity, then a linear
  *     interpolation down to the 0.22/0.05 floor spread over max_layers
  *     levels (ported from CDepthFocusManager::getTransformForLayer);
+ *   - back-card scatter: cards behind the front are offset towards a random
+ *     workarea edge (or around the focused card) so each one keeps a peek
+ *     strip of at least card_peek_min px visible — ported from
+ *     CDepthFocusManager::scatterOnEdges/scatterAroundFocused. Where focusZ
+ *     moved the client box (setPositionGlobal on floating windows), here the
+ *     offset is a visual translation on the transformer, so the client is
+ *     never repositioned either;
  *
  * The architectural difference that fixes focusZ's bugs: scale and opacity are
  * applied *visually* through wf::scene::view_2d_transformer_t. The client is
@@ -30,8 +37,10 @@
 #include <wayfire/signal-provider.hpp>
 #include <wayfire/option-wrapper.hpp>
 #include <wayfire/util/log.hpp>
+#include <wayfire/workarea.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <map>
 #include <memory>
 #include <vector>
@@ -41,11 +50,16 @@ static constexpr const char *TRANSFORMER_NAME = "depthdeck";
 // focusz::constants, from hypr-focuZ/src/DepthFocus.cpp
 static constexpr float kFloorScale   = 0.22f;
 static constexpr float kFloorOpacity = 0.05f;
+static constexpr double kEdgeInset   = 16.0;
+static constexpr double kTwoPi       = 6.283185307179586;
 
 struct depth_transform_t
 {
     float scale;
     float opacity;
+    // Visual scatter offset in output pixels (0 for the front card).
+    float tx = 0.0f;
+    float ty = 0.0f;
 };
 
 class depthdeck_t : public wf::plugin_interface_t
@@ -149,6 +163,15 @@ class depthdeck_t : public wf::plugin_interface_t
     wf::option_wrapper_t<double> layer2_scale{"depthdeck/layer_2_scale"};
     wf::option_wrapper_t<double> layer2_opacity{"depthdeck/layer_2_opacity"};
     wf::option_wrapper_t<int> max_layers{"depthdeck/max_layers"};
+    wf::option_wrapper_t<bool> scatter{"depthdeck/scatter"};
+    wf::option_wrapper_t<bool> card_edge_scatter{"depthdeck/card_edge_scatter"};
+    wf::option_wrapper_t<bool> card_scatter_reshuffle{"depthdeck/card_scatter_reshuffle"};
+    wf::option_wrapper_t<double> card_peek_min{"depthdeck/card_peek_min"};
+    wf::option_wrapper_t<double> card_peek_max{"depthdeck/card_peek_max"};
+
+    // focusZ's m_dealNonce: bumped whenever the deck membership changes so a
+    // reshuffle gives the back cards fresh positions instead of the same roll.
+    uint64_t deal_nonce = 0;
 
     /* ---------- deck bookkeeping -------------------------------------- */
 
@@ -168,6 +191,7 @@ class depthdeck_t : public wf::plugin_interface_t
 
         // New cards enter at the front; focus history sorts it out from there.
         place_front(view.get());
+        deal_nonce++;
     }
 
     void untrack(wayfire_toplevel_view view)
@@ -183,6 +207,7 @@ class depthdeck_t : public wf::plugin_interface_t
         detach(it->second.get());
         remove_from_deck(output, view.get());
         cards.erase(it);
+        deal_nonce++;
         layout(output);
     }
 
@@ -299,6 +324,11 @@ class depthdeck_t : public wf::plugin_interface_t
             return (it == cards.end()) || (it->second->output != output);
         }), deck.end());
 
+        if (deck.empty())
+        {
+            return;
+        }
+
         if (!enabled)
         {
             for (auto *view : deck)
@@ -309,7 +339,21 @@ class depthdeck_t : public wf::plugin_interface_t
             return;
         }
 
-        const int levels = std::max<int>(1, max_layers);
+        // focusZ clamps depth to maxLayers - 1 (an index, not a count): with
+        // max_layers = 8 the deepest card is depth 7.
+        const int max_depth = std::max<int>(1, max_layers) - 1;
+
+        // The front card's box anchors the scatter: back cards are positioned
+        // relative to it, exactly like focusZ's frontBox.
+        wf::geometry_t front_box;
+        bool            have_front = false;
+        auto front_it = cards.find(deck.front());
+        if ((front_it != cards.end()) && front_it->second->view)
+        {
+            front_box   = front_it->second->view->get_geometry();
+            have_front  = true;
+        }
+
         for (size_t i = 0; i < deck.size(); i++)
         {
             auto it = cards.find(deck[i]);
@@ -320,7 +364,19 @@ class depthdeck_t : public wf::plugin_interface_t
 
             // Depth is clamped to max_layers: everything deeper shares the
             // deepest treatment (the transform floors at 0.22/0.05 anyway).
-            apply(it->second.get(), transform_for_depth(std::min<int>(i, levels)));
+            auto t    = transform_for_depth(std::min<int>(i, max_depth));
+            t.tx      = 0.0f;
+            t.ty      = 0.0f;
+
+            if (scatter && have_front && (i > 0))
+            {
+                auto off = scatter_offset(output, it->second.get(), front_box,
+                    (int)i, t.scale);
+                t.tx = off.x;
+                t.ty = off.y;
+            }
+
+            apply(it->second.get(), t);
         }
     }
 
@@ -365,6 +421,133 @@ class depthdeck_t : public wf::plugin_interface_t
         };
     }
 
+    /* ---------- back-card scatter -------------------------------------- */
+
+    // Deterministic splitmix64 finalizer — focusZ's randSeed(), so the same
+    // (view, depth, nonce) always rolls the same position.
+    static uint64_t rand_seed(uint64_t seed)
+    {
+        uint64_t h = seed * 0x9E3779B97F4A7C15ull;
+        h ^= h >> 30;
+        h *= 0xBF58476D1CE4E5B9ull;
+        h ^= h >> 27;
+        h *= 0x94D049BB133111EBull;
+        h ^= h >> 31;
+        return h;
+    }
+
+    // Visual scatter offset (output px) for a back card: where focusZ moved
+    // the client box, we compute the same target box and return the delta
+    // between its center and the card's natural center — the transformer
+    // applies it after scaling, so the math composes unchanged.
+    wf::pointf_t scatter_offset(wf::output_t *output, card_t *card,
+        const wf::geometry_t& front, int depth, float scale) const
+    {
+        const wf::geometry_t g    = card->view->get_geometry();
+        const double         cw   = g.width * scale;
+        const double         ch   = g.height * scale;
+        const wf::geometry_t work = output->workarea->get_workarea();
+
+        const uint64_t  nonce_mix =
+            card_scatter_reshuffle ? (uint64_t)deal_nonce * 0x9E3779B97F4A7C15ull : 0ull;
+        const uint64_t  addr = (uint64_t)(uintptr_t)card->view.get();
+        const double    peek_min = card_peek_min;
+        const double    peek_max = card_peek_max;
+
+        double tx = work.x;
+        double ty = work.y;
+
+        if (card_edge_scatter)
+        {
+            // Edge-bias mode: up to 64 rolls, keeping the position with the
+            // biggest peek beyond the front box and stopping as soon as the
+            // card sticks out by at least peek_min px.
+            double best_peek = -1.0;
+            for (int attempt = 0; attempt < 64; attempt++)
+            {
+                const uint64_t r     = rand_seed(addr ^ ((uint64_t)depth << 32) ^ nonce_mix ^
+                                                 ((uint64_t)attempt * 0x9E3779B97F4A7C15ull));
+                const int      edge  = (int)(r >> 0) & 0x3;
+                const double   along = (double)((r >> 16) & 0xFFFF) / 65536.0;
+                double x, y;
+                switch (edge)
+                {
+                    case 0: // top
+                        x = work.x + along * std::max(0.0, (double)work.width - cw);
+                        y = work.y + kEdgeInset;
+                        break;
+                    case 1: // right
+                        x = work.x + work.width - cw - kEdgeInset;
+                        y = work.y + along * std::max(0.0, (double)work.height - ch);
+                        break;
+                    case 2: // bottom
+                        x = work.x + along * std::max(0.0, (double)work.width - cw);
+                        y = work.y + work.height - ch - kEdgeInset;
+                        break;
+                    default: // left
+                        x = work.x + kEdgeInset;
+                        y = work.y + along * std::max(0.0, (double)work.height - ch);
+                        break;
+                }
+
+                const double peek = std::max(
+                    std::max(front.x - x, x + cw - (front.x + front.width)),
+                    std::max(front.y - y, y + ch - (front.y + front.height)));
+
+                if (peek > best_peek)
+                {
+                    best_peek = peek;
+                    tx = x;
+                    ty = y;
+                }
+
+                if (peek >= peek_min)
+                {
+                    break;
+                }
+            }
+        } else
+        {
+            // Around-focused mode: a random angle and a radius of peek_min..
+            // peek_max beyond the front card's edge.
+            const uint64_t r      = rand_seed(addr ^ ((uint64_t)depth << 32) ^ nonce_mix);
+            const double   angle  = (double)(r & 0xFFFF) / 65536.0 * kTwoPi;
+            const double   radius = peek_min +
+                                   (double)((r >> 48) & 0xFFFF) / 65536.0 * (peek_max - peek_min);
+            const double   fcx    = front.x + front.width / 2.0;
+            const double   fcy    = front.y + front.height / 2.0;
+            const double   cx     = fcx + std::cos(angle) * (front.width / 2.0 + radius);
+            const double   cy     = fcy + std::sin(angle) * (front.height / 2.0 + radius);
+            tx = cx - cw / 2.0;
+            ty = cy - ch / 2.0;
+        }
+
+        // Keep the card inside the workarea (focusZ's clampToWorkarea).
+        if (tx < work.x)
+        {
+            tx = work.x;
+        }
+
+        if (tx + cw > work.x + work.width)
+        {
+            tx = work.x + work.width - cw;
+        }
+
+        if (ty < work.y)
+        {
+            ty = work.y;
+        }
+
+        if (ty + ch > work.y + work.height)
+        {
+            ty = work.y + work.height - ch;
+        }
+
+        const double gcx = g.x + g.width / 2.0;
+        const double gcy = g.y + g.height / 2.0;
+        return {(float)((tx + cw / 2.0) - gcx), (float)((ty + ch / 2.0) - gcy)};
+    }
+
     /* ---------- transform application ---------------------------------- */
 
     void apply(card_t *card, depth_transform_t t)
@@ -382,7 +565,8 @@ class depthdeck_t : public wf::plugin_interface_t
         }
 
         auto& tr = *card->transformer;
-        if ((tr.scale_x == t.scale) && (tr.alpha == t.opacity))
+        if ((tr.scale_x == t.scale) && (tr.alpha == t.opacity) &&
+            (tr.translation_x == t.tx) && (tr.translation_y == t.ty))
         {
             return;
         }
@@ -390,6 +574,10 @@ class depthdeck_t : public wf::plugin_interface_t
         node->begin_transform_update();
         tr.scale_x = tr.scale_y = t.scale;
         tr.alpha   = t.opacity;
+        // Post-scale, in output pixels — the card's visual center lands on
+        // natural center + (tx, ty).
+        tr.translation_x = t.tx;
+        tr.translation_y = t.ty;
         node->end_transform_update();
     }
 
