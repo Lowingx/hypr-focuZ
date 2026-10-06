@@ -16,6 +16,10 @@
  *     moved the client box (setPositionGlobal on floating windows), here the
  *     offset is a visual translation on the transformer, so the client is
  *     never repositioned either;
+ *   - animation: scale/opacity/scatter changes interpolate over
+ *     animation_ms through wf::animation (one shared duration + four
+ *     timed_transition_t channels, the pre/post effect-hook pattern from
+ *     plugins/scale). animation_ms = 0 snaps instantly.
  *
  * The architectural difference that fixes focusZ's bugs: scale and opacity are
  * applied *visually* through wf::scene::view_2d_transformer_t. The client is
@@ -36,6 +40,8 @@
 #include <wayfire/signal-definitions.hpp>
 #include <wayfire/signal-provider.hpp>
 #include <wayfire/option-wrapper.hpp>
+#include <wayfire/render-manager.hpp>
+#include <wayfire/util/duration.hpp>
 #include <wayfire/util/log.hpp>
 #include <wayfire/workarea.hpp>
 
@@ -91,12 +97,14 @@ class depthdeck_t : public wf::plugin_interface_t
 
         on_output_added = [this] (wf::output_added_signal *ev)
         {
+            hook_output(ev->output);
             seed(ev->output);
         };
         wf::get_core().output_layout->connect(&on_output_added);
 
         on_output_removed = [this] (wf::output_removed_signal *ev)
         {
+            unhook_output(ev->output);
             decks.erase(ev->output);
             for (auto& [ptr, card] : cards)
             {
@@ -126,6 +134,7 @@ class depthdeck_t : public wf::plugin_interface_t
 
         for (auto output : wf::get_core().output_layout->get_outputs())
         {
+            hook_output(output);
             seed(output);
         }
 
@@ -138,6 +147,11 @@ class depthdeck_t : public wf::plugin_interface_t
         on_view_unmapped.disconnect();
         on_output_added.disconnect();
         on_output_removed.disconnect();
+
+        for (auto output : wf::get_core().output_layout->get_outputs())
+        {
+            unhook_output(output);
+        }
         enabled.set_callback(nullptr);
         layer1_scale.set_callback(nullptr);
         layer1_opacity.set_callback(nullptr);
@@ -165,9 +179,32 @@ class depthdeck_t : public wf::plugin_interface_t
 
     struct card_t
     {
+        // One shared duration drives the four interpolated channels; the
+        // pre-hook rewrites the transformer from them each frame while the
+        // duration runs — the same pattern as plugins/scale's
+        // scale_animation_t.
+        struct animation_t : public wf::animation::duration_t
+        {
+            animation_t(std::shared_ptr<wf::config::option_t<int>> length) :
+                duration_t(length)
+            {}
+            wf::animation::timed_transition_t scale{*this};
+            wf::animation::timed_transition_t alpha{*this};
+            wf::animation::timed_transition_t tx{*this};
+            wf::animation::timed_transition_t ty{*this};
+        };
+
+        explicit card_t(std::shared_ptr<wf::config::option_t<int>> animation_length) :
+            anim(animation_length)
+        {}
+
         wayfire_toplevel_view view = nullptr;
         wf::output_t *output = nullptr;
         std::shared_ptr<wf::scene::view_2d_transformer_t> transformer;
+        animation_t anim;
+        // Set when apply() parked values the pre-hook still has to write —
+        // covers both animation_ms = 0 (instant path) and the final frame.
+        bool anim_dirty = false;
     };
 
     // Keyed by raw pointer: a card never keeps a view alive.
@@ -192,6 +229,61 @@ class depthdeck_t : public wf::plugin_interface_t
     wf::option_wrapper_t<bool> card_scatter_reshuffle{"depthdeck/card_scatter_reshuffle"};
     wf::option_wrapper_t<double> card_peek_min{"depthdeck/card_peek_min"};
     wf::option_wrapper_t<double> card_peek_max{"depthdeck/card_peek_max"};
+    wf::option_wrapper_t<int> animation_ms{"depthdeck/animation_ms"};
+
+    // FocusZ had no animation — this is the Wayfire-side polish: values
+    // glide instead of snapping. Same self-sustaining loop as scale.cpp:
+    // pre-hook writes the transitions into the transformers, post-hook
+    // keeps redrawing for as long as any duration is running.
+    wf::effect_hook_t pre_hook = [this] ()
+    {
+        for (auto& [key, card] : cards)
+        {
+            if (!card->view || !card->transformer)
+            {
+                card->anim_dirty = false;
+                continue;
+            }
+
+            if (!card->anim_dirty && !card->anim.running())
+            {
+                continue;
+            }
+
+            auto& node = card->view->get_transformed_node();
+            auto& tr   = *card->transformer;
+            node->begin_transform_update();
+            tr.scale_x = tr.scale_y = card->anim.scale;
+            tr.alpha   = card->anim.alpha;
+            // Post-scale, in output pixels (see apply()).
+            tr.translation_x = card->anim.tx;
+            tr.translation_y = card->anim.ty;
+            node->end_transform_update();
+
+            if (!card->anim.running())
+            {
+                card->anim_dirty = false;
+            }
+        }
+    };
+
+    wf::effect_hook_t post_hook = [this] ()
+    {
+        for (auto& [key, card] : cards)
+        {
+            if (card->anim_dirty || card->anim.running())
+            {
+                // Any card still in flight: keep every output repainting,
+                // the pre-hook runs at the start of each frame.
+                for (auto wo : wf::get_core().output_layout->get_outputs())
+                {
+                    wo->render->schedule_redraw();
+                }
+
+                return;
+            }
+        }
+    };
 
     // focusZ's m_dealNonce: bumped whenever the deck membership changes so a
     // reshuffle gives the back cards fresh positions instead of the same roll.
@@ -206,7 +298,7 @@ class depthdeck_t : public wf::plugin_interface_t
             return;
         }
 
-        auto card         = std::make_unique<card_t>();
+        auto card         = std::make_unique<card_t>(animation_ms);
         card->view        = view;
         card->output      = view->get_output();
         cards[view.get()] = std::move(card);
@@ -285,6 +377,28 @@ class depthdeck_t : public wf::plugin_interface_t
     }
 
     /* ---------- layout ------------------------------------------------ */
+
+    void hook_output(wf::output_t *output)
+    {
+        if (!output)
+        {
+            return;
+        }
+
+        output->render->add_effect(&pre_hook, wf::OUTPUT_EFFECT_PRE);
+        output->render->add_effect(&post_hook, wf::OUTPUT_EFFECT_POST);
+    }
+
+    void unhook_output(wf::output_t *output)
+    {
+        if (!output)
+        {
+            return;
+        }
+
+        output->render->rem_effect(&pre_hook);
+        output->render->rem_effect(&post_hook);
+    }
 
     void seed(wf::output_t *output)
     {
@@ -582,27 +696,71 @@ class depthdeck_t : public wf::plugin_interface_t
         }
 
         auto& node = card->view->get_transformed_node();
+        bool fresh = false;
         if (!card->transformer)
         {
             card->transformer = std::make_shared<wf::scene::view_2d_transformer_t>(card->view);
             node->add_transformer(card->transformer, wf::TRANSFORMER_2D + 1, TRANSFORMER_NAME);
+            fresh = true;
         }
 
-        auto& tr = *card->transformer;
-        if ((tr.scale_x == t.scale) && (tr.alpha == t.opacity) &&
-            (tr.translation_x == t.tx) && (tr.translation_y == t.ty))
+        // Already heading to this exact target: don't restart the flight
+        // (layout() runs on every activate, most of them no-ops).
+        const bool heading_here =
+            (card->anim.scale.end == t.scale) && (card->anim.alpha.end == t.opacity) &&
+            (card->anim.tx.end == t.tx) && (card->anim.ty.end == t.ty);
+
+        if (!fresh && heading_here)
         {
+            auto& tr = *card->transformer;
+            if (!card->anim_dirty && !card->anim.running() &&
+                ((tr.scale_x != t.scale) || (tr.alpha != t.opacity) ||
+                 (tr.translation_x != t.tx) || (tr.translation_y != t.ty)))
+            {
+                // A finished flight that never landed (defensive): ask the
+                // pre-hook for one snap write — transitions end at target.
+                card->anim_dirty = true;
+                kick_frames();
+            }
+
             return;
         }
 
-        node->begin_transform_update();
-        tr.scale_x = tr.scale_y = t.scale;
-        tr.alpha   = t.opacity;
-        // Post-scale, in output pixels — the card's visual center lands on
-        // natural center + (tx, ty).
-        tr.translation_x = t.tx;
-        tr.translation_y = t.ty;
-        node->end_transform_update();
+        if (animation_ms <= 0)
+        {
+            // Instant path: pin the transitions on the target — even a
+            // previously running flight collapses to start == end == target,
+            // so the pre-hook keeps writing the right value.
+            card->anim.scale.set(t.scale, t.scale);
+            card->anim.alpha.set(t.opacity, t.opacity);
+            card->anim.tx.set(t.tx, t.tx);
+            card->anim.ty.set(t.ty, t.ty);
+            card->anim_dirty = true;
+            kick_frames();
+            return;
+        }
+
+        // Animate from whatever is on screen right now — mid-flight values
+        // included, so retargeting a moving card stays smooth.
+        auto& tr     = *card->transformer;
+        card->anim.scale.set(tr.scale_x, t.scale);
+        card->anim.alpha.set(tr.alpha, t.opacity);
+        card->anim.tx.set(tr.translation_x, t.tx);
+        card->anim.ty.set(tr.translation_y, t.ty);
+        card->anim.start();
+        card->anim_dirty = true;
+        kick_frames();
+    }
+
+    // Nothing damages when only transitions change, so nudge the outputs
+    // into rendering: the pre-hook then writes the values for that frame
+    // and the post-hook sustains the loop while the duration runs.
+    void kick_frames()
+    {
+        for (auto wo : wf::get_core().output_layout->get_outputs())
+        {
+            wo->render->schedule_redraw();
+        }
     }
 
     void detach(card_t *card)
@@ -614,6 +772,7 @@ class depthdeck_t : public wf::plugin_interface_t
 
         card->view->get_transformed_node()->rem_transformer(TRANSFORMER_NAME);
         card->transformer.reset();
+        card->anim_dirty = false;
     }
 };
 

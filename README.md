@@ -32,7 +32,7 @@ Constantes do focusZ preservadas em `src/depthdeck.cpp`:
 
 1. ✅ **Esqueleto**: deck + escala/opacidade por profundidade.
 2. ✅ **Scatter de posição** (port do focusZ: borda/ao-redor, faixa de peek, reshuffle por nonce, clamp na workarea) via `translation_x/y` do transformer.
-3. Animação (`wf::animation::simple_animation_t`) para escala/alpha/translação.
+3. ✅ **Animação** — um `wf::animation::duration_t` por carta (duração = `animation_ms`, 0 = snap) com quatro `timed_transition_t` (scale/alpha/tx/ty), no padrão do `plugins/scale`: `pre_hook` grava os canais no transformer, `post_hook` mantém `schedule_redraw()` enquanto `running()`; retarget a partir do valor visual atual (voo no meio é interpolado). Loop para sozinho — 0 ticks de CPU em repouso.
 4. ✅ **Blur/frost do fundo** — plugin `blur` na lista de plugins (matcher padrão casa todo toplevel); densidade por profundidade via alpha. Nesta fase também: **todas** as opções do depthdeck ganharam `set_callback` → relayout em runtime (WCM/`wayfire/set-config-options`), sem esperar o próximo promote/unmap.
 5. Guard de flick + atalhos de cycling + integração WCM.
 6. Paridade fina com focusZ (janelas maximizadas, workarea reservada, reshuffle fino).

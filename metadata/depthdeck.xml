@@ -79,5 +79,13 @@
 			<max>400</max>
 			<precision>1</precision>
 		</option>
+		<option name="animation_ms" type="int">
+			<_short>Animation duration</_short>
+			<_long>Milliseconds used to interpolate scale, opacity and scatter changes. 0 switches animation off (values snap instantly).</_long>
+			<default>200</default>
+			<min>0</min>
+			<max>2000</max>
+			<precision>10</precision>
+		</option>
 	</plugin>
 </wayfire>
