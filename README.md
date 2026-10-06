@@ -22,8 +22,8 @@ portando o algoritmo do focusZ como ele é, não uma reinvenção.
 | `getTransformForLayer(depth)` | `transform_for_depth(depth)` — **idêntico**: camada 1 (0.70/0.85), camada 2 (0.50/0.70), interpolação linear até o piso `kFloorScale=0.22` / `kFloorOpacity=0.05` espalhada em `max_layers` níveis; profundidade clampada em `max_layers - 1` (índice, como o focusZ) |
 | resize do cliente | `view_2d_transformer_t` (scale/alpha), dano propagado com `begin/end_transform_update` |
 | `scatterOnEdges` / `scatterAroundFocused` / `clampToWorkarea` | `scatter_offset()` — **port1:1** (splitmix64, modo borda com até 64 rolagens garantindo `peek ≥ card_peek_min`, clamp na workarea) aplicado como `translation_x/y` **visual** em vez de mover o cliente |
-| blur do fundo | *fase 3* (`plugins/blur`: `blur_node_t`, `view_matcher_t`) |
-| guard de flick | *fase 4* (não crítico: Wayfire não foca no hover por padrão) |
+| blur do fundo | ✅ **fase 4**: plugin `blur` de primeira-parte (matcher `blur_by_default = type is "toplevel"`, `view_matcher_t`) — toda carta translúcida revela o fundo **borrado** atrás de si = vidro fosco; a densidade por profundidade vem do alpha. Raio único global, a mesma limitação do focusZ no Hyprland ("blur follows the global `blur:size`") |
+| guard de flick | *fase 5* (não crítico: Wayfire não foca no hover por padrão) |
 
 Constantes do focusZ preservadas em `src/depthdeck.cpp`:
 `kFloorScale = 0.22f`, `kFloorOpacity = 0.05f`, `kEdgeInset = 16.0`.
@@ -33,7 +33,7 @@ Constantes do focusZ preservadas em `src/depthdeck.cpp`:
 1. ✅ **Esqueleto**: deck + escala/opacidade por profundidade.
 2. ✅ **Scatter de posição** (port do focusZ: borda/ao-redor, faixa de peek, reshuffle por nonce, clamp na workarea) via `translation_x/y` do transformer.
 3. Animação (`wf::animation::simple_animation_t`) para escala/alpha/translação.
-4. Blur/frost do fundo por profundidade.
+4. ✅ **Blur/frost do fundo** — plugin `blur` na lista de plugins (matcher padrão casa todo toplevel); densidade por profundidade via alpha. Nesta fase também: **todas** as opções do depthdeck ganharam `set_callback` → relayout em runtime (WCM/`wayfire/set-config-options`), sem esperar o próximo promote/unmap.
 5. Guard de flick + atalhos de cycling + integração WCM.
 6. Paridade fina com focusZ (janelas maximizadas, workarea reservada, reshuffle fino).
 

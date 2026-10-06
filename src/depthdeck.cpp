@@ -108,7 +108,21 @@ class depthdeck_t : public wf::plugin_interface_t
         };
         wf::get_core().output_layout->connect(&on_output_removed);
 
-        enabled.set_callback([this] { refresh_all(); });
+        // Every layout-affecting option triggers a relayout, so runtime
+        // changes (WCM, IPC wayfire/set-config-options) take effect at once
+        // instead of waiting for the next promote/unmap.
+        auto refresh = [this] { refresh_all(); };
+        enabled.set_callback(refresh);
+        layer1_scale.set_callback(refresh);
+        layer1_opacity.set_callback(refresh);
+        layer2_scale.set_callback(refresh);
+        layer2_opacity.set_callback(refresh);
+        max_layers.set_callback(refresh);
+        scatter.set_callback(refresh);
+        card_edge_scatter.set_callback(refresh);
+        card_scatter_reshuffle.set_callback(refresh);
+        card_peek_min.set_callback(refresh);
+        card_peek_max.set_callback(refresh);
 
         for (auto output : wf::get_core().output_layout->get_outputs())
         {
@@ -125,6 +139,16 @@ class depthdeck_t : public wf::plugin_interface_t
         on_output_added.disconnect();
         on_output_removed.disconnect();
         enabled.set_callback(nullptr);
+        layer1_scale.set_callback(nullptr);
+        layer1_opacity.set_callback(nullptr);
+        layer2_scale.set_callback(nullptr);
+        layer2_opacity.set_callback(nullptr);
+        max_layers.set_callback(nullptr);
+        scatter.set_callback(nullptr);
+        card_edge_scatter.set_callback(nullptr);
+        card_scatter_reshuffle.set_callback(nullptr);
+        card_peek_min.set_callback(nullptr);
+        card_peek_max.set_callback(nullptr);
 
         for (auto& [ptr, card] : cards)
         {
