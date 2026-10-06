@@ -20,7 +20,10 @@ Adopt a **render-path-free architecture**: the plugin never calls `addPassElemen
 3. **Floating mode** — `changeFloatingMode()` to own card positioning
 4. **Window raising** — `Desktop::windowState()->raise()` for Z-ordering
 
-The render hook (`onRenderStage`) is a no-op. Decorations (`CDepthShadowDecoration::drawShadow`) are disabled. The `CScaleTransformer` class is removed entirely.
+The render hook (`onRenderStage`), the decoration class
+(`CDepthShadowDecoration`) and the `CScaleTransformer` are removed outright —
+placeholders that are never reached are not a safety mechanism, they are dead
+code (removed 2026-10-06).
 
 ## Consequences
 
@@ -40,14 +43,10 @@ The render hook (`onRenderStage`) is a no-op. Decorations (`CDepthShadowDecorati
 
 ### Neutral
 
-- The 15 inert config keys (canvas, borders, frost) remain registered for future revival with a safe render path
-- The `CDepthShadowDecoration` class is kept as a no-op placeholder to preserve the plugin API surface (deco type, damage)
+- The 18 inert config keys (canvas, borders, frost, blur, animation speed, center scale) were **removed** instead of kept registered: a key nobody reads is a lie to the user. Reintroduce them together with the feature.
 - Future render-path revival must go through a sandboxed test harness before merging
 
 ## Links
 
-- `src/DepthFocus.cpp:667` — `onRenderStage` no-op
-- `src/DepthShadow.cpp:34` — `drawShadow` disabled
-- `.github/workflows/build.yml:88` — CI render-path check
-- Performance report: `docs/PERFORMANCE-REPORT.md`
-- Security audit: `docs/SECURITY-REPORT.md`
+- `.github/workflows/build.yml` — CI render-path check
+- Removed by: `refactor: remove code that exists but never runs`

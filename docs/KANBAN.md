@@ -22,9 +22,10 @@ Z-axis depth-focus layout.
 2. **Keep it moving** — update the card as the work progresses; comment when a
    decision is made so the reasoning is on the record.
 3. **Hand off** — open a PR, move the card to `In Review`, and add a reviewer.
-4. **Verify together** — a card reaches `Done` only when the change builds and
-   loads in a live Hyprland session (there is no CI or test suite yet; see
-   AGENTS.md). Close the issue once the repo docs reflect the state.
+4. **Verify together** — a card reaches `Done` only when `make check` (the
+   `-Werror` CI gate) passes, `./run-tests.sh` is green, and the change loads
+   in a live Hyprland session (there is no headless test for the compositor
+   side; see AGENTS.md). Close the issue once the repo docs reflect the state.
 5. **Retrospect** — at milestone boundaries, reconcile the board against
    `ROADMAP.md` and archive stale cards.
 
@@ -56,21 +57,23 @@ plugin API to grow first gets `status:blocked`.
 
 | Issue | Title | Status | Prio | Area | Milestone |
 |-------|-------|--------|------|------|-----------|
-| #15 | Revive card borders: rim around every deck card (render-path-safe) | Todo | P1 | visual | M4 |
-| #16 | Revive wallpaper canvas: dimmed/zoomed background behind the deck | Todo | P1 | visual | M4 |
-| #17 | Revive card frost: frosted-glass veil over back cards | Todo | P1 | visual | M4 |
-| #18 | Tune depth falloff to match visual target (scale/opacity curve) | Todo | P1 | visual | M4 |
-| #19 | Dim-on-startup: deck renders immediately without click-to-focus | Todo | P1 | feature | M4 |
-| #20 | Layer exclusions: per-class rules to never depth (docks, floats) | Todo | P1 | feature | M4 |
-| #21 | Per-layer blur radius (API limitation — reserved, inert) | Blocked | P2 | feature | M4 |
-| #22 | Animation easing/bezier per depth transition | Todo | P2 | feature | M5 |
-| #23 | Shadow intensity/color config for background layers | Todo | P2 | feature | M5 |
-| #24 | Multi-monitor participation policy | Todo | P2 | feature | M5 |
-| #25 | Configurable depth→transform curves (scale/opacity as f(layer)) | Todo | P2 | feature | M5 |
-| #26 | PKGBUILD for Ryoku (`ryoku-focusZ`) | Todo | P0 | ops | M6 |
-| #27 | Module sync: `focusz.lua` tracks plugin version | Todo | P1 | ops | M6 |
-| #28 | ABI rebuild flow: detect hyprland upgrade, trigger rebuild | Todo | P1 | ops | M6 |
-| #29 | Defaults in `hyprland.lua`: module config values | Todo | P1 | ops | M6 |
+| #16 | Revive card borders: rim around every deck card (render-path-safe) | Todo | P1 | visual | M4 |
+| #17 | Revive wallpaper canvas: dimmed/zoomed background behind the deck | Todo | P1 | visual | M4 |
+| #18 | Revive card frost: frosted-glass veil over back cards | Todo | P1 | visual | M4 |
+| #19 | Tune depth falloff to match visual target (scale/opacity curve) | Todo | P1 | visual | M4 |
+| #20 | Dim-on-startup: deck renders immediately without click-to-focus | Todo | P1 | feature | M4 |
+| #21 | Layer exclusions: per-class rules to never depth (docks, floats) | Todo | P1 | feature | M4 |
+| #23 | Animation easing/bezier per depth transition | Todo | P2 | feature | M5 |
+| #24 | Shadow intensity/color config for background layers | Todo | P2 | feature | M5 |
+| #25 | Multi-monitor participation policy | Todo | P2 | feature | M5 |
+| #26 | Configurable depth→transform curves (scale/opacity as f(layer)) | Todo | P2 | feature | M5 |
+| #27 | PKGBUILD for Ryoku (`ryoku-focusZ`) | Todo | P0 | ops | M6 |
+| #28 | Module sync: `focusz.lua` tracks plugin version | Todo | P1 | ops | M6 |
+| #30 | Defaults in `hyprland.lua`: module config values | Todo | P1 | ops | M6 |
+
+> Issue numbers are GitHub's. #15 is a throwaway "Test issue"; the old table on
+> this board was written against a shifted numbering and mismatched every card
+> from #15 up. Reconciled 2026-10-06.
 
 ### Removed / Archived
 
@@ -86,13 +89,14 @@ plugin API to grow first gets `status:blocked`.
 |-------|-------|--------|------|------|-----------|
 | #5 | Headless tests: impossible, document the manual loop | Todo | P1 | ci/docs | M3 |
 | #6 | Rebuild flow on Hyprland upgrades (ABI lock) | Todo | P1 | ops | M6 |
+| #7 | Per-layer blur radius (API limitation) | Blocked | P2 | feature | M4 |
 
 ## Visual Parity Status
 
 **Current parity:** ~60% (core depth effect works, visual polish missing)
 **Target:** `~/Downloads/deep_1-1_000.zip` (140 PNGs)
 **Analysis completed:** 2026-08-13
-**Action plan:** `docs/VISUAL-PARITY-ACTION-PLAN.md` (4 phases, 11-17 days)
+**Action plan:** tracked in `docs/ROADMAP.md` and the kanban (M4, 4 phases)
 
 ### What Works ✅
 
@@ -105,25 +109,25 @@ plugin API to grow first gets `status:blocked`.
 | Stack rebuilding | ✅ | — | Identity check prevents unnecessary rebuilds |
 | Workspace isolation | ✅ | — | Only anchor monitor's active workspace |
 | Fullscreen skip | ✅ | — | Fullscreen windows not affected |
-| Unit tests | ✅ | — | 23 tests passing |
+| Unit tests | ✅ | — | 18 tests passing |
 
 ### What's Missing ❌
 
 | Feature | Status | Issue | Priority | Phase |
 |---------|--------|-------|----------|-------|
-| Card borders | ❌ | #15 | P1 | Phase 2 |
-| Frosted glass | ❌ | #17 | P1 | Phase 2 |
+| Card borders | ❌ | #16 | P1 | Phase 2 |
+| Frosted glass | ❌ | #18 | P1 | Phase 2 |
 | Canvas plate | ❌ | New needed | P2 | Phase 3 |
-| Wallpaper canvas | ❌ | #16 | P1 | Phase 3 |
-| Depth shadows | ❌ | #23 | P2 | Phase 3 |
-| Animation easing | ❌ | #22 | P2 | Phase 3 |
+| Wallpaper canvas | ❌ | #17 | P1 | Phase 3 |
+| Depth shadows | ❌ | #24 | P2 | Phase 3 |
+| Animation easing | ❌ | #23 | P2 | Phase 3 |
 
 ### Implementation Phases
 
 | Phase | Duration | Features | Status |
 |-------|----------|----------|--------|
 | Phase 1: Quick Wins | 1-2 days | Tune scale/opacity parameters | Ready |
-| Phase 2: Render-Path-Safe | 3-5 days | Card borders, frosted glass | Blocked on #15 |
+| Phase 2: Render-Path-Safe | 3-5 days | Card borders, frosted glass | Blocked on #16 |
 | Phase 3: Advanced | 5-7 days | Canvas plate, wallpaper, shadows | Blocked on Phase 2 |
 | Phase 4: Integration | 2-3 days | Config validation, docs, release | Blocked on Phase 3 |
 
@@ -155,18 +159,21 @@ plugin API to grow first gets `status:blocked`.
   scattered across workarea, frosted glass blur behind back cards.
 - **Render-path-free constraint (M1):** the plugin must not call `addPassElement`,
   attach `IWindowTransformer`, or draw decorations. All crashes in v0.56.2 came
-  from the render path. Issues #15–#17 need a new safe render mechanism.
-- **Dead code:** `drawCardBorders()`, `drawCanvas()`, `drawCardFrost()`, and
-  `onRenderStage()` are all empty/no-op bodies. Config keys for these features
-  are registered but inert. Issues #15–#17 revive them safely.
+  from the render path. Issues #16–#18 need a new safe render mechanism.
+- **Dead code:** removed 2026-10-06 — the empty `drawCardBorders()`/`drawCanvas()`/
+  `drawCardFrost()`/`onRenderStage()` bodies, the never-attached
+  `CDepthShadowDecoration`, and the 18 config keys that were registered but
+  never read. Issues #16–#18 revive those features **with** their keys, not
+  before.
 - **ABI lock (#6):** top operational risk — plugin unloads on any Hyprland
   version-hash mismatch. Every collaborator must rebuild after upgrades.
-- **Per-layer blur radius (#21):** blocked by plugin API — blur size is the global
+- **Per-layer blur radius (#7):** blocked by plugin API — blur size is the global
   `blur:size` setting; only an on/off `noblur` rule exists.
-- **Card borders via decoration:** safest render-path approach — use existing
-  `CDepthShadowDecoration` to draw borders instead of `addPassElement`.
-- **Testing infrastructure:** Google Test with 23 unit tests covering pure
-  functions (randSeed, clampToWorkarea, scale calculations, deck factor).
+- **Card borders via decoration:** safest render-path approach — a dedicated
+  decoration (the old `CDepthShadowDecoration` slot) drawing with
+  `renderRect`, attached for real this time.
+- **Testing infrastructure:** Google Test with 18 unit tests covering pure
+  functions (randSeed, clampToWorkarea, scale calculations).
   Run with `./run-tests.sh` or `cmake --build build-tests && cd build-tests && ctest`.
 - **CI integration:** Unit tests run automatically on every push/PR via
   `.github/workflows/build.yml`. All tests passing ✅.
