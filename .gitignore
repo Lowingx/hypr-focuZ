@@ -10,3 +10,7 @@ build/
 .prowl-setup.lock
 # /prowl-agent: derived state
 build-tests/
+compile_commands.json
+.mcp.json
+.claude/
+.prowl/

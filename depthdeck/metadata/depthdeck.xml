@@ -1,0 +1,99 @@
+<?xml version="1.0"?>
+<wayfire>
+	<plugin name="depthdeck">
+		<_short>Depth deck</_short>
+		<_long>Arranges windows into a depth deck: the focused window sits in front at full scale, the ones behind shrink and dim by focus depth.</_long>
+		<category>Window Management</category>
+		<option name="enabled" type="bool">
+			<_short>Enabled</_short>
+			<_long>Master switch. When disabled, every transformed window is unwound back to full scale and opacity.</_long>
+			<default>true</default>
+		</option>
+		<option name="layer_1_scale" type="double">
+			<_short>Layer 1 scale</_short>
+			<_long>Scale of the first card behind the focused one.</_long>
+			<default>0.7</default>
+			<min>0.1</min>
+			<max>1.0</max>
+			<precision>0.01</precision>
+		</option>
+		<option name="layer_1_opacity" type="double">
+			<_short>Layer 1 opacity</_short>
+			<_long>Opacity of the first card behind the focused one.</_long>
+			<default>0.85</default>
+			<min>0.0</min>
+			<max>1.0</max>
+			<precision>0.01</precision>
+		</option>
+		<option name="layer_2_scale" type="double">
+			<_short>Layer 2 scale</_short>
+			<_long>Scale of the second card behind the focused one.</_long>
+			<default>0.5</default>
+			<min>0.1</min>
+			<max>1.0</max>
+			<precision>0.01</precision>
+		</option>
+		<option name="layer_2_opacity" type="double">
+			<_short>Layer 2 opacity</_short>
+			<_long>Opacity of the second card behind the focused one.</_long>
+			<default>0.7</default>
+			<min>0.0</min>
+			<max>1.0</max>
+			<precision>0.01</precision>
+		</option>
+		<option name="max_layers" type="int">
+			<_short>Maximum depth layers</_short>
+			<_long>Number of depth levels over which the falloff interpolates down to the floor (scale 0.22 / opacity 0.05).</_long>
+			<default>8</default>
+			<min>1</min>
+			<max>16</max>
+		</option>
+		<option name="scatter" type="bool">
+			<_short>Scatter back cards</_short>
+			<_long>Offset the cards behind the front so each keeps a visible peek strip. Visual only — windows are never moved.</_long>
+			<default>true</default>
+		</option>
+		<option name="card_edge_scatter" type="bool">
+			<_short>Edge-bias scatter</_short>
+			<_long>Place back cards near a random workarea edge instead of at a random angle around the focused card.</_long>
+			<default>true</default>
+		</option>
+		<option name="card_scatter_reshuffle" type="bool">
+			<_short>Reshuffle on rebuild</_short>
+			<_long>Give back cards fresh positions whenever a card joins or leaves the deck.</_long>
+			<default>true</default>
+		</option>
+		<option name="card_peek_min" type="double">
+			<_short>Minimum peek strip</_short>
+			<_long>Smallest visible strip (px) a back card must keep outside the front card.</_long>
+			<default>24</default>
+			<min>0</min>
+			<max>200</max>
+			<precision>1</precision>
+		</option>
+		<option name="card_peek_max" type="double">
+			<_short>Maximum peek strip</_short>
+			<_long>Upper bound (px) for the radius used by the around-focused scatter mode.</_long>
+			<default>80</default>
+			<min>0</min>
+			<max>400</max>
+			<precision>1</precision>
+		</option>
+		<option name="animation_ms" type="int">
+			<_short>Animation duration</_short>
+			<_long>Milliseconds used to interpolate scale, opacity and scatter changes. 0 switches animation off (values snap instantly).</_long>
+			<default>200</default>
+			<min>0</min>
+			<max>2000</max>
+			<precision>10</precision>
+		</option>
+		<option name="maximized_front_scale" type="double">
+			<_short>Scale of a maximised front card</_short>
+			<_long>When the focused window covers the workarea and other cards are in the deck, the front is rendered at this scale so the back cards peek out around it (depth perspective). 1.00 keeps the front full size, which hides every back card.</_long>
+			<default>0.90</default>
+			<min>0.50</min>
+			<max>1.00</max>
+			<precision>0.01</precision>
+		</option>
+	</plugin>
+</wayfire>
