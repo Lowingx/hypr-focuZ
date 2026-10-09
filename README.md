@@ -2,6 +2,12 @@
 
 [![build](https://github.com/Lowingx/hypr-focuZ/actions/workflows/build.yml/badge.svg)](https://github.com/Lowingx/hypr-focuZ/actions/workflows/build.yml)
 
+> **Active work: [`depthdeck/`](depthdeck/), the Wayfire port of focusZ.**
+> A from-scratch reimplementation of the deck on Wayfire's public plugin API:
+> depth scale and opacity, scatter, deck animation, and background blur frost,
+> all of it visual (the client is never resized). This root plugin is the
+> original Hyprland version and is kept as-is.
+
 ![focusZ demo — windows stacking as depth cards](assets/demo.gif)
 
 A Hyprland plugin that gives windows real **Z-axis depth**: the focused window sits
